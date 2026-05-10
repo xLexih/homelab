@@ -1,0 +1,32 @@
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: copyparty
+  namespace: copyparty
+  labels:
+    app: copyparty
+spec:
+  ingressClassName: apisix
+  http:
+    - name: http
+      match:
+        hosts:
+          - file.flowernode.com
+        paths:
+          - "/*"
+      backends:
+        - serviceName: copyparty
+          servicePort: 3923
+      websocket: true
+      plugins:
+        - name: limit-req
+          enable: false
+  stream:
+    - name: sftp
+      protocol: TCP
+      match:
+        ingressPort: 2222
+      backend:
+        serviceName: copyparty
+        servicePort: 2222
+        resolveGranularity: endpoint

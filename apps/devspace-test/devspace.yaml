@@ -1,0 +1,50 @@
+version: v2beta1
+name: devspace-live
+
+images:
+  app:
+    image: devspace-live-app
+    dockerfile: ./Dockerfile
+    context: ./
+
+deployments:
+  app:
+    kubectl:
+      inlineManifest: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: devspace-live
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: devspace-live
+          template:
+            metadata:
+              labels:
+                app: devspace-live
+            spec:
+              containers:
+              - name: app
+                image: devspace-live-app
+                ports:
+                - containerPort: 3000
+
+dev:
+  app:
+    labelSelector:
+      app: devspace-live
+    # Sync local files into the container — this is what makes live reload work
+    sync:
+      - path: ./:/app
+        excludePaths:
+          - node_modules/
+          - .git/
+    # Forward container port 3000 to localhost:3000
+    ports:
+      - port: "3000:3000"
+    # Override the container command to use nodemon (auto-restart on .js changes)
+    command: ["npm", "run", "dev"]
+    # Open a terminal into the container
+    terminal: {}

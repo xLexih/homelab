@@ -1,0 +1,179 @@
+etcd:
+  enabled: true
+  replicaCount: 3
+  auth:
+    rbac:
+      enabled: false
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: etcd
+          topologyKey: kubernetes.io/hostname
+
+ingress-controller:
+  enabled: true
+  config:
+    apisix:
+      adminAPIVersion: v3
+  gatewayProxy:
+    createDefault: true
+    provider:
+      controlPlane:
+        auth:
+          adminKey:
+            value: c8c022a738180d026a2d4c8913d65eee9458995816facf1b8561fbbc07f9ca42
+
+service:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 192.168.2.150
+  annotations:
+    service.cilium.io/forwarding-mode: dsr # Enables DSR mode for real client IP preservation
+  labelsOverride:
+    app.kubernetes.io/name: apisix
+    loadbalancer.home.enabled: "true"
+  http:
+    enabled: true
+    servicePort: 80
+    containerPort: 9080
+  tls:
+    servicePort: 443
+  stream:
+    enabled: true
+    tcp:
+      - 2222
+
+discovery:
+  enabled: true
+  registry:
+    kubernetes: {}
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+replicaCount: 2 # DSR mode allows 2 replicas on 3 nodes - return traffic bypasses intermediate nodes
+apisix:
+  autoscaling:
+    enabled: false
+  admin:
+    credentials:
+      admin: c8c022a738180d026a2d4c8913d65eee9458995816facf1b8561fbbc07f9ca42
+  ssl:
+    enabled: true
+    containerPort: 9443
+  readinessProbe:
+    httpGet:
+      path: /apisix/status
+      port: 9080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+  livenessProbe:
+    httpGet:
+      path: /apisix/status
+      port: 9080
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 3
+  deployment:
+    role: traditional
+    role_traditional:
+      config_provider: etcd
+  nodeSelector:
+    topology.kubernetes.io/zone: home
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: apisix
+          topologyKey: kubernetes.io/hostname
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: apisix
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  nginx:
+    configurationSnippet:
+      httpStart: |
+        more_clear_headers Server;
+        map $status $status_text {
+          400 'Bad Request';
+          401 'Unauthorized';
+          402 'Payment Required';
+          403 'Forbidden';
+          404 'Not Found';
+          405 'Method Not Allowed';
+          406 'Not Acceptable';
+          407 'Proxy Authentication Required';
+          408 'Request Timeout';
+          409 'Conflict';
+          410 'Gone';
+          411 'Length Required';
+          412 'Precondition Failed';
+          413 'Payload Too Large';
+          414 'URI Too Long';
+          415 'Unsupported Media Type';
+          416 'Range Not Satisfiable';
+          417 'Expectation Failed';
+          418 'I\'m a teapot';
+          421 'Misdirected Request';
+          422 'Unprocessable Entity';
+          423 'Locked';
+          424 'Failed Dependency';
+          425 'Too Early';
+          426 'Upgrade Required';
+          428 'Precondition Required';
+          429 'Too Many Requests';
+          431 'Request Header Fields Too Large';
+          451 'Unavailable For Legal Reasons';
+          500 'Internal Server Error';
+          501 'Not Implemented';
+          502 'Bad Gateway';
+          503 'Service Unavailable';
+          504 'Gateway Timeout';
+          505 'HTTP Version Not Supported';
+          506 'Variant Also Negotiates';
+          507 'Insufficient Storage';
+          508 'Loop Detected';
+          510 'Not Extended';
+          511 'Network Authentication Required';
+          default 'Something is wrong';
+        }
+        map $http_accept $extension {
+          default html;
+          ~*application/json json;
+        }
+      httpSrv: |
+        error_page 400 401 402 403 404 405 406 407 408 409 410 411 412 413 414 415 416 417 418 421 422 423 424 425 426 428 429 431 451 500 501 502 503 504 505 506 507 508 510 511 @error_$extension;
+        location @error_json {
+          types { } default_type "application/json; charset=utf-8";
+          echo '{"error_msg": "$status_text"}';
+        }
+        location @error_html {
+          types { } default_type "text/html; charset=utf-8";
+         echo '<html><head><title>$status $status_text</title></head><body><center><h1>$status $status_text</h1></center></html>';
+        }

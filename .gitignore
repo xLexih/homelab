@@ -1,0 +1,13 @@
+result
+result-*
+
+.direnv/
+.devspace/
+
+keys/hosts/*/ssh_host_*_key
+!keys/hosts/*/ssh_host_*_key.pub
+
+*.log
+*.tar.gz
+
+.env

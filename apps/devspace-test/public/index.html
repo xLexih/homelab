@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevSpace Live Reload</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 DevSpace Live Reload</h1>
+    <p class="subtitle">Edit any file and watch it update in the cluster!</p>
+
+    <div class="card">
+      <h2>Try it:</h2>
+      <ul>
+        <li>Edit <code>public/index.html</code> → refresh browser</li>
+        <li>Edit <code>public/style.css</code> → refresh browser</li>
+        <li>Edit <code>server.js</code> → nodemon auto-restarts</li>
+      </ul>
+    </div>
+
+    <div class="card" id="status">
+      <h2>API Status</h2>
+      <pre id="api-response">Loading...</pre>
+    </div>
+
+    <div class="card">
+      <h2>Counter</h2>
+      <p class="counter" id="count">0</p>
+      <button onclick="increment()">Click me!</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

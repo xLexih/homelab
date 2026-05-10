@@ -1,0 +1,3 @@
+{...}: {
+  imports = [./kube-vip.nix];
+}
