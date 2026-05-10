@@ -5,7 +5,7 @@
 **Declarative multi‑location Kubernetes cluster with WireGuard mesh networking**
 
 [![NixOS](https://img.shields.io/badge/NixOS-25.11-3b5487?logo=NixOS)](https://nixos.org)
-[![K3s](https://img.shields.io/badge/K3s-v1.34.3-ffc61c?logo=k3s)](https://k3s.io)
+[![K3s](https://img.shields.io/badge/K3s-v1.34.5-ffc61c?logo=k3s)](https://k3s.io)
 [![WireGuard](https://img.shields.io/badge/WireGuard-v1.0.20250521-88171a?logo=wireguard)](https://wireguard.com)
 [![Cilium](https://img.shields.io/badge/Cilium-1.19.3-111827?logo=cilium)](https://cilium.io)
 [![kube‑vip](https://img.shields.io/badge/kube--vip-0.9.8-ea5903?logo=octopus-deploy&logoColor=e60012)](https://kube-vip.io)
