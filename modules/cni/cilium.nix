@@ -9,7 +9,7 @@
 
   isInit = nodeConfig.init;
   apiPort = toString clusterConfig.network.apiServerPort;
-  ciliumMTU = toString (clusterConfig.network.wgMTU - 50); # 1440 − 50 for Geneve encapsulation
+  ciliumMTU = toString clusterConfig.network.wgMTU;
 
   ciliumArgs = [
     "--set operator.replicas=1"
@@ -20,8 +20,10 @@
     "--set operator.k8sServicePort=${apiPort}"
     "--set ipam.mode=kubernetes"
     "--set ipam.operator.clusterPoolIPv4PodCIDR=${clusterConfig.network.podCIDR}"
-    "--set routingMode=tunnel"
+    "--set routingMode=native"
     "--set tunnelProtocol=geneve"
+    "--set ipv4NativeRoutingCIDR=${clusterConfig.network.podCIDR}"
+    "--set autoDirectNodeRoutes=false"
     "--set bpf.masquerade=true"
     "--set enableIPv4Masquerade=true"
     "--set nodePort.enabled=true" # required for kube-vip LoadBalancer with externalTrafficPolicy=Local

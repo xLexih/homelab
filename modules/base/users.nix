@@ -10,9 +10,8 @@
       ];
     };
     admin = {
-      isSystemUser = true;
-      group = "admin";
-      password = "admin"; # Proxmox only so it's safe
+      isNormalUser = true;
+      password = "admin";
       extraGroups = ["wheel"];
       openssh.authorizedKeys.keyFiles = [
         "${self}/keys/admin.pub"

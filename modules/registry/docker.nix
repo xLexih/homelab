@@ -80,6 +80,7 @@ in
           numberOfReplicas: "2"
           dataLocality: "disabled"
           accessMode: "rwx"
+          nfsOptions: "vers=4.0,noresvport,softerr,timeo=600,retrans=5" # v4.0 avoids NFSv4.1 state-lock hang under concurrent writes
         EOF
       '';
     };

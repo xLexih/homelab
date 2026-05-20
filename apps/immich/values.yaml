@@ -1,0 +1,96 @@
+immich:
+  persistence:
+    library:
+      existingClaim: immich-library
+  configuration:
+    image:
+      thumbnail:
+        format: webp
+      preview:
+        format: webp
+    job:
+      thumbnailGeneration:
+        concurrency: 2
+      metadataExtraction:
+        concurrency: 2
+      faceDetection:
+        concurrency: 2
+
+valkey:
+  enabled: true
+  persistence:
+    data:
+      enabled: true
+      size: 2Gi
+      type: persistentVolumeClaim
+      accessMode: ReadWriteOnce
+      storageClass: longhorn
+
+server:
+  enabled: true
+  controllers:
+    main:
+      containers:
+        main:
+          image:
+            tag: v2.7.5
+          env:
+            DB_HOSTNAME: immich-postgresql
+            DB_USERNAME: immich
+            DB_DATABASE_NAME: immich
+            DB_PASSWORD: immich
+            VIPS_CONCURRENCY: "1"
+            IMMICH_LOG_LEVEL: verbose
+          probes:
+            startup:
+              enabled: true
+              spec:
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                failureThreshold: 60
+            liveness:
+              enabled: true
+              spec:
+                periodSeconds: 15
+                failureThreshold: 3
+            readiness:
+              enabled: true
+              spec:
+                periodSeconds: 10
+                failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+
+machine-learning:
+  enabled: true
+  controllers:
+    main:
+      containers:
+        main:
+          image:
+            repository: ghcr.io/immich-app/immich-machine-learning
+            tag: v2.7.5-cuda
+          env:
+            MACHINE_LEARNING_FACIAL_RECOGNITION_MODEL: buffalo_l
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+      pod:
+        nodeSelector:
+          nvidia.com/gpu.present: "true"
+        runtimeClassName: nvidia
+  persistence:
+    cache:
+      enabled: true
+      size: 20Gi
+      type: persistentVolumeClaim
+      accessMode: ReadWriteOnce
+      storageClass: longhorn
