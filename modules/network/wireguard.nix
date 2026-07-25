@@ -57,14 +57,21 @@ in {
     requires = lib.mkDefault ["wireguard-wg0.service"];
   };
 
-  systemd.services.ensure-masq-wg0 = {
+  systemd.services.ensure-masq-wg0 = let
+    iptables = "${pkgs.iptables}/bin/iptables";
+    rule = "-t nat -C CILIUM_POST_nat -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE";
+    add = "-t nat -I CILIUM_POST_nat 1 -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE";
+  in {
     description = "Ensure iptables MASQUERADE rule for pod traffic over wg0";
     after = ["network.target" "cilium.service"];
     wants = ["cilium.service"];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.iptables}/bin/iptables -t nat -C CILIUM_POST_nat -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE || ${pkgs.iptables}/bin/iptables -t nat -I CILIUM_POST_nat 1 -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE";
+      RemainAfterExit = true;
     };
+    script = ''
+      ${iptables} ${rule} || ${iptables} ${add}
+    '';
   };
 
   systemd.timers.ensure-masq-wg0 = {

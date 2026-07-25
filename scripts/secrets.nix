@@ -37,7 +37,7 @@ in
     }
 
     [[ -f secrets/admin.pub ]] || {
-      log ERROR "Missing secrets/admin.pub"
+      log init "ERROR: Missing secrets/admin.pub"
       echo "Generate: ssh-keygen -t ed25519 -f ~/.ssh/k3s-admin -N \"\" && cp ~/.ssh/k3s-admin.pub secrets/admin.pub"
       exit 1
     }

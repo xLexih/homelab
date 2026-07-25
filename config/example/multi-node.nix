@@ -115,7 +115,10 @@
             {
               device = "/dev/sdb";
               roles = ["system" "etcd"];
-              sizes = {system = "40G"; etcd = "100%FREE";};
+              sizes = {
+                system = "40G";
+                etcd = "100%FREE";
+              };
             }
             {
               device = "/dev/sda";
@@ -140,7 +143,10 @@
             {
               device = "/dev/sdb";
               roles = ["system" "etcd"];
-              sizes = {system = "40G"; etcd = "100%FREE";};
+              sizes = {
+                system = "40G";
+                etcd = "100%FREE";
+              };
             }
             {
               device = "/dev/sda";

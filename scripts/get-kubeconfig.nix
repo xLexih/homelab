@@ -31,7 +31,7 @@ in
     key="''${2:-}"
 
     [[ -n $node ]] || { usage; exit 1; }
-    [[ -z $key || -f $key ]] || { log ERROR "Key not found: $key"; exit 1; }
+    [[ -z $key || -f $key ]] || { log get-kubeconfig "ERROR: Key not found: $key"; exit 1; }
 
     ip=$(resolve_ip "$node")
     port=$(resolve_port "$node")

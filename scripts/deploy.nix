@@ -35,7 +35,7 @@ in
 
     require_key() {
       if [[ -n "''${1:-}" ]] && [[ ! -f "''${1}" ]]; then
-        log ERROR "SSH key not found: $1"
+        log deploy "ERROR: SSH key not found: $1"
         exit 1
       fi
     }

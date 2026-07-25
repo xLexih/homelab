@@ -21,7 +21,8 @@
   devicePluginArgs = [
     "--set image.repository=nvcr.io/nvidia/k8s-device-plugin"
     "--set image.tag=v${versions.nvidiaDevicePlugin}"
-    # Required for GFD to work properly                                                                                                                                      Amount of vGpus (3 cuz i have 6gb card lol)
+    # Required for GFD to work properly
+    # Time-slicing: split 1 GPU into 3 replicas (6 GB → ~2 GB per replica)
     "--set runtimeClassName=nvidia"
     # https://github.com/UntouchedWagons/K3S-NVidia/blob/main/values.yaml
     "--set config.map.default='version: v1\nflags:\n  migStrategy: none\nsharing:\n  timeSlicing:\n    renameByDefault: false\n    failRequestsGreaterThanOne: false\n    resources:\n      - name: nvidia.com/gpu\n        replicas: 3'"
