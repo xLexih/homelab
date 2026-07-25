@@ -1,0 +1,20 @@
+replicaCount: 2
+
+env:
+  REGISTRY_TITLE: Cluster Registry
+  REGISTRY_URL: http://registry-docker-registry.registry.svc.cluster.local:5000
+  SINGLE_REGISTRY: true
+  DELETE_IMAGES: true
+  SHOW_CONTENT_DIGEST: true
+
+service:
+  port: 80
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

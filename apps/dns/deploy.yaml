@@ -1,0 +1,101 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dns
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dns-update-data
+  namespace: dns
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dns-update
+  namespace: dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dns-update
+  template:
+    metadata:
+      labels:
+        app: dns-update
+    spec:
+      nodeSelector:
+        topology.kubernetes.io/zone: home
+      containers:
+        - name: dns-update
+          image: registry-docker-registry.registry.svc.cluster.local:5000/dns-update:latest
+          imagePullPolicy: Always
+          env:
+            - name: DNS_DIR
+              value: /app/data
+            - name: DNS_LOG_IPS
+              value: "true"
+            - name: DNS_DOMAIN_REGISTRAR
+              value: Porkbun
+            - name: DNS_RECORD_MATCH
+              value: "@home"
+            - name: DNS_UPDATE_TIME
+              value: "*/5 * * * *"
+            - name: DNS_PORKBUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: porkbun-credentials
+                  key: api-key
+            - name: DNS_PORKBUN_SECRET_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: porkbun-credentials
+                  key: secret-key
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dns-update-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dns-update
+  namespace: dns
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: dns-update

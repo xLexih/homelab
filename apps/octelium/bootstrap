@@ -1,0 +1,23 @@
+spec:
+  primaryStorage:
+    postgresql:
+      username: octelium
+      passwordFromSecret:
+        name: octelium-pg
+        namespace: octelium-bootstrap
+        key: password
+      host: octelium-postgres.octelium-bootstrap.svc.cluster.local
+      port: 5432
+      database: octelium
+      isTLS: false
+  secondaryStorage:
+    redis:
+      username: default
+      passwordFromSecret:
+        name: octelium-redis
+        namespace: octelium-bootstrap
+        key: password
+      host: octelium-redis.octelium-bootstrap.svc.cluster.local
+      port: 6379
+      database: 0
+      isTLS: false

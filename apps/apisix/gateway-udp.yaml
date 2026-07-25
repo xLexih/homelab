@@ -1,0 +1,23 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apisix-gateway-udp
+  namespace: apisix
+  labels:
+    app.kubernetes.io/name: apisix
+    loadbalancer.home.enabled: "true"
+  annotations:
+    service.cilium.io/forwarding-mode: dsr
+    kube-vip.io/allow-shared-ip: "apisix-gateway"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerIP: 192.168.2.150
+  selector:
+    app.kubernetes.io/name: apisix
+  ports:
+    - name: quic
+      port: 443
+      targetPort: 9443
+      protocol: UDP

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: apisix-dashboard
+  namespace: apisix
+  labels:
+    app.kubernetes.io/name: apisix
+    loadbalancer.home.enabled: "true"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.2.151
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: apisix
+  ports:
+    - name: dashboard
+      port: 80
+      targetPort: 9180
+      protocol: TCP

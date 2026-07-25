@@ -1,0 +1,6 @@
+*secret*
+!*.age
+!**/*.age
+dex-values.yaml
+cli/
+certs/

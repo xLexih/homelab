@@ -1,0 +1,67 @@
+alertmanager:
+  enabled: false
+
+grafana:
+  deploymentStrategy:
+    type: Recreate
+  grafana.ini:
+    panels:
+      disable_sanitize_html: true
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClassName: longhorn-grafana
+  plugins:
+    - yesoreyeram-infinity-datasource
+  additionalDataSources:
+    - name: Speedtest Trigger
+      type: yesoreyeram-infinity-datasource
+      uid: speedtest-trigger
+      url: http://speedtest-controller.monitoring.svc:8080
+      access: proxy
+      editable: false
+      isDefault: false
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: monitoring
+    datasources:
+      enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    additionalScrapeConfigs:
+      - job_name: speedtest
+        scrape_interval: 5s
+        scrape_timeout: 4s
+        static_configs:
+          - targets:
+              - speedtest-controller.monitoring.svc:8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn-grafana
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 50Gi
+
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true

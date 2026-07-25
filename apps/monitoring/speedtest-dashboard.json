@@ -1,0 +1,72 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "title": "Run Speed Test",
+      "type": "text",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "options": {
+        "mode": "html",
+        "content": "<div id=\"speedtest-trigger-panel\" style=\"height:100%;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 18px;border:1px solid rgba(148,163,184,.25);border-radius:8px;background:linear-gradient(135deg,#111827 0%,#0f172a 100%);\"><div><div style=\"font-size:16px;font-weight:600;color:#f8fafc;margin-bottom:4px;\">Run an on-demand speed test</div><div id=\"speedtest-trigger-message\" style=\"font-size:12px;line-height:1.5;color:#cbd5e1;max-width:460px;\">The test runs against the internal trigger service and the charts refresh after the run completes.</div></div><button id=\"speedtest-trigger-button\" type=\"button\" style=\"cursor:pointer;border:none;border-radius:8px;background:#2563eb;color:#eff6ff;padding:10px 18px;font-size:13px;font-weight:600;\">Run now</button></div><script>(function(){var panel=document.getElementById('speedtest-trigger-panel');if(!panel||panel.dataset.bound==='true'){return;}panel.dataset.bound='true';var button=document.getElementById('speedtest-trigger-button');var message=document.getElementById('speedtest-trigger-message');var defaultText='The test runs against the internal trigger service and the charts refresh after the run completes.';var setState=function(opts){button.disabled=!!opts.disabled;button.textContent=opts.label||'Run now';button.style.opacity=opts.disabled?'0.72':'1';message.textContent=opts.message||defaultText;message.style.color=opts.color||'#cbd5e1';};var pollStatus=function(){fetch('/api/datasources/proxy/uid/speedtest-trigger/status',{credentials:'same-origin'}).then(function(response){return response.json();}).then(function(status){if(status.running){setState({disabled:true,label:'Running...',message:'Speed test is still running. The dashboard will refresh when it finishes.',color:'#86efac'});setTimeout(pollStatus,5000);return;}setState({disabled:true,label:'Complete',message:'Speed test finished. Refreshing charts...',color:'#86efac'});setTimeout(function(){window.location.reload();},3000);}).catch(function(){setTimeout(pollStatus,5000);});};button.addEventListener('click',async function(){setState({disabled:true,label:'Starting...',message:'Submitting the speed test request.',color:'#bfdbfe'});try{var response=await fetch('/api/datasources/proxy/uid/speedtest-trigger/run',{method:'POST',credentials:'same-origin'});if(response.status===202||response.status===409){pollStatus();return;}setState({disabled:false,label:'Run now',message:'Speed test request failed with HTTP '+response.status+'.',color:'#fca5a5'});}catch(error){setState({disabled:false,label:'Run now',message:'Speed test request failed before Grafana received a response.',color:'#fca5a5'});}});})();</script>"
+      }
+    },
+    {
+      "title": "Last Test Run",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "dateTimeAsIso" } },
+      "options": { "colorMode": "none", "graphMode": "none", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" },
+      "targets": [{ "expr": "speedtest_last_run_timestamp_seconds * 1000", "instant": true }]
+    },
+    {
+      "title": "Current Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [{ "options": { "0": { "text": "Idle" }, "1": { "text": "Running" } }, "type": "value" }], "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] } } },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" },
+      "targets": [{ "expr": "speedtest_run_in_progress", "instant": true }]
+    },
+    {
+      "title": "Download Speed (Mbps)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 18, "gradientMode": "opacity", "lineInterpolation": "smooth", "lineWidth": 3, "spanNulls": true }, "unit": "Mbits" } },
+      "targets": [{ "expr": "max(speedtest_download_bits_per_second) / 1000000", "legendFormat": "Download" }]
+    },
+    {
+      "title": "Upload Speed (Mbps)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 18, "gradientMode": "opacity", "lineInterpolation": "smooth", "lineWidth": 3, "spanNulls": true }, "unit": "Mbits" } },
+      "targets": [{ "expr": "max(speedtest_upload_bits_per_second) / 1000000", "legendFormat": "Upload" }]
+    },
+    {
+      "title": "Ping Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 18, "gradientMode": "opacity", "lineInterpolation": "smooth", "lineWidth": 3, "spanNulls": true }, "unit": "ms" } },
+      "targets": [{ "expr": "max(speedtest_ping_latency_milliseconds)", "legendFormat": "Ping" }]
+    },
+    {
+      "title": "Jitter (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 18, "gradientMode": "opacity", "lineInterpolation": "smooth", "lineWidth": 3, "spanNulls": true }, "unit": "ms" } },
+      "targets": [{ "expr": "max(speedtest_jitter_latency_milliseconds)", "legendFormat": "Jitter" }]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "title": "Internet Speed & Stability",
+  "uid": "speedtest-overview"
+}

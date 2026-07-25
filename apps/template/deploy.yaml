@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: EXAMPLE
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-EXAMPLE
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+parameters:
+  numberOfReplicas: "2"
+  dataLocality: "disabled"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: EXAMPLE-data
+  namespace: EXAMPLE
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-EXAMPLE
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: EXAMPLE
+  namespace: EXAMPLE
+  labels:
+    app.kubernetes.io/name: EXAMPLE
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: EXAMPLE
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: EXAMPLE-netpol
+  namespace: EXAMPLE
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: EXAMPLE
+  ingress:
+    # Host-networked clients are not matched by fromEndpoints pod labels.
+    # Add a fromEntities rule for host/remote-node/kube-apiserver if a node
+    # agent or gateway needs to call this app through Cilium policy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: octelium
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    - toEntities:
+        - all

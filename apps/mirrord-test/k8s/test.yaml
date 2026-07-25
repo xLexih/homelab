@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mirrord-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  namespace: mirrord-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: podinfo
+  template:
+    metadata:
+      labels:
+        app: podinfo
+    spec:
+      containers:
+      - name: app
+        image: podinfo:latest
+        imagePullPolicy: Never  
+        ports:
+        - containerPort: 8080
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  namespace: mirrord-demo
+spec:
+  selector:
+    app: podinfo
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP
