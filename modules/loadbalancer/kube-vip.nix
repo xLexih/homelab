@@ -5,7 +5,7 @@
   nodeConfig,
   ...
 }: let
-  inherit (helmDefaults) versions mkHelmService kubectl log;
+  inherit (helmDefaults) versions mkHelmService mkResourceArgs kubectl log;
 
   isInit = nodeConfig.init;
   lb = clusterConfig.loadBalancer;
@@ -31,9 +31,7 @@
     "--set tolerations[0].effect=NoSchedule"
     "--set resources.requests.cpu=50m"
     "--set resources.requests.memory=64Mi"
-    "--set resources.limits.cpu=200m"
-    "--set resources.limits.memory=128Mi"
-  ];
+  ] ++ mkResourceArgs "" { cpu = "200m"; memory = "128Mi"; } {};
 
   kubeVipPostDeploy = ''
     ${kubectl} rollout status daemonset kube-vip -n kube-system --timeout=300s

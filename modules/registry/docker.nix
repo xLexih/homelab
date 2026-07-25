@@ -6,7 +6,7 @@
   nodeConfig,
   ...
 }: let
-  inherit (helmDefaults) versions mkHelmService kubectl;
+  inherit (helmDefaults) versions mkHelmService mkResourceArgs kubectl;
 
   registryCfg = clusterConfig.registry;
   isInit = nodeConfig.init;
@@ -17,26 +17,25 @@
   shouldDeploy = isInit && isMaster && registryCfg.type == "docker"
     && (clusterConfig.storageBackend == "longhorn" || isLocal);
 
-  registryArgs = [
-    "--set persistence.enabled=true"
-    "--set persistence.size=${registryCfg.storageSize}"
-    "--set replicaCount=${toString registryCfg.replicas}"
-    "--set service.type=ClusterIP"
-    "--set service.port=5000"
-    "--set resources.limits.cpu=500m"
-    "--set resources.limits.memory=512Mi"
-    "--set resources.requests.cpu=100m"
-    "--set resources.requests.memory=128Mi"
-  ] ++ (if isLocal then [
-    "--set persistence.storageClass=local-path"
-    "--set persistence.accessMode=ReadWriteOnce"
-  ] else [
-    "--set persistence.storageClass=longhorn-rwx"
-    "--set persistence.accessMode=ReadWriteMany"
-    "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight=100"
-    "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels.app=docker-registry"
-    "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey=kubernetes.io/hostname"
-  ]);
+  registryArgs =
+    [
+      "--set persistence.enabled=true"
+      "--set persistence.size=${registryCfg.storageSize}"
+      "--set replicaCount=${toString registryCfg.replicas}"
+      "--set service.type=ClusterIP"
+      "--set service.port=5000"
+    ]
+    ++ mkResourceArgs "" { cpu = "500m"; memory = "512Mi"; } { cpu = "100m"; memory = "128Mi"; }
+    ++ (if isLocal then [
+      "--set persistence.storageClass=local-path"
+      "--set persistence.accessMode=ReadWriteOnce"
+    ] else [
+      "--set persistence.storageClass=longhorn-rwx"
+      "--set persistence.accessMode=ReadWriteMany"
+      "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight=100"
+      "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels.app=docker-registry"
+      "--set affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey=kubernetes.io/hostname"
+    ]);
 
   registryPreDeploy = lib.optionalString (!isLocal) ''
     log registry "Waiting for Longhorn CSI..."
@@ -45,20 +44,18 @@
     done
   '';
 
-  registryUIArgs = [
-    "--set replicaCount=${toString registryCfg.replicas}"
-    "--set service.type=ClusterIP"
-    "--set service.port=80"
-    "--set env.REGISTRY_TITLE='Cluster Registry'"
-    "--set env.REGISTRY_URL='http://registry-docker-registry.registry.svc.cluster.local:5000'"
-    "--set env.SINGLE_REGISTRY=true"
-    "--set env.SHOW_CONTENT_DIGEST=true"
-    "--set env.DELETE_IMAGES=true"
-    "--set resources.limits.cpu=200m"
-    "--set resources.limits.memory=256Mi"
-    "--set resources.requests.cpu=50m"
-    "--set resources.requests.memory=64Mi"
-  ];
+  registryUIArgs =
+    [
+      "--set replicaCount=${toString registryCfg.replicas}"
+      "--set service.type=ClusterIP"
+      "--set service.port=80"
+      "--set env.REGISTRY_TITLE='Cluster Registry'"
+      "--set env.REGISTRY_URL='http://registry-docker-registry.registry.svc.cluster.local:5000'"
+      "--set env.SINGLE_REGISTRY=true"
+      "--set env.SHOW_CONTENT_DIGEST=true"
+      "--set env.DELETE_IMAGES=true"
+    ]
+    ++ mkResourceArgs "" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; };
 in
   lib.mkIf shouldDeploy (lib.mkMerge [
     (lib.mkIf (!isLocal) {

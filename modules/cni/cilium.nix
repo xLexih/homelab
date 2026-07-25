@@ -5,7 +5,7 @@
   nodeConfig,
   ...
 }: let
-  inherit (helmDefaults) versions mkHelmService kubectl;
+  inherit (helmDefaults) versions mkHelmService mkResourceArgs kubectl;
 
   isInit = nodeConfig.init;
   apiPort = toString clusterConfig.network.apiServerPort;
@@ -35,14 +35,9 @@
     "--set encryption.enabled=false"
     "--set hubble.enabled=false"
     "--set prometheus.enabled=false"
-    "--set operator.resources.limits.cpu=200m"
-    "--set operator.resources.limits.memory=256Mi"
-    "--set operator.resources.requests.cpu=50m"
-    "--set operator.resources.requests.memory=64Mi"
-    "--set resources.limits.cpu=500m"
-    "--set resources.limits.memory=512Mi"
-    "--set resources.requests.cpu=100m"
-    "--set resources.requests.memory=128Mi"
+  ] ++ mkResourceArgs "operator" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
+  ++ mkResourceArgs "" { cpu = "500m"; memory = "512Mi"; } { cpu = "100m"; memory = "128Mi"; }
+  ++ [
     "--set loadBalancer.mode=hybrid" # TCP DSR, UDP SNAT — compatible with kube-vip ARP
     "--set loadBalancer.dsrDispatch=geneve" # tunnel DSR replies over Geneve
   ];

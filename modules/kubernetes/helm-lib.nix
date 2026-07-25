@@ -15,12 +15,10 @@
   log = ''log() { echo "[$(date '+%H:%M:%S')] [$1] $2"; }'';
 
   mkResourceArgs = component: limits: requests:
-    [
-      "--set ${component}.resources.limits.cpu=${limits.cpu}"
-      "--set ${component}.resources.limits.memory=${limits.memory}"
-      "--set ${component}.resources.requests.cpu=${requests.cpu}"
-      "--set ${component}.resources.requests.memory=${requests.memory}"
-    ];
+    ["--set ${component}.resources.limits.cpu=${limits.cpu}"
+      "--set ${component}.resources.limits.memory=${limits.memory}"]
+    ++ lib.optionals (requests ? cpu) ["--set ${component}.resources.requests.cpu=${requests.cpu}"]
+    ++ lib.optionals (requests ? memory) ["--set ${component}.resources.requests.memory=${requests.memory}"];
 
   waitForApi = ''
     for i in $(seq 1 36); do
@@ -95,24 +93,24 @@ in {
       url = "https://helm.cilium.io/";
     }
     {
-      name = "longhorn";
-      url = "https://charts.longhorn.io/";
+      name = "joxit";
+      url = "https://helm.joxit.dev/";
     }
     {
       name = "kube-vip";
       url = "https://kube-vip.github.io/helm-charts/";
     }
     {
-      name = "twuni";
-      url = "https://twuni.github.io/docker-registry.helm";
-    }
-    {
-      name = "joxit";
-      url = "https://helm.joxit.dev/";
+      name = "longhorn";
+      url = "https://charts.longhorn.io/";
     }
     {
       name = "nvdp";
       url = "https://nvidia.github.io/k8s-device-plugin";
+    }
+    {
+      name = "twuni";
+      url = "https://twuni.github.io/docker-registry.helm";
     }
   ];
 
