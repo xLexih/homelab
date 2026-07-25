@@ -9,6 +9,7 @@
 
   isInit = nodeConfig.init;
   lb = clusterConfig.loadBalancer;
+  useLB = lb.enable or false;
 
   kubeVipArgs = [
     "--set env.vip_arp=true"
@@ -53,7 +54,7 @@
           loadbalancer.${location}.enabled: "true"
   '';
 in
-  lib.mkIf lb.enabled {
+  lib.mkIf useLB {
     systemd.services.helm-deploy-kube-vip = lib.mkIf isInit (mkHelmService {
       name = "kube-vip";
       release = "kube-vip";

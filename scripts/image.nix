@@ -53,7 +53,7 @@ in
         file="''${2:-}"; target="''${3:-all}"; key="''${4:-}"
         [[ -z "$file" ]] && { usage; exit 1; }
         [[ -f "$file" ]] || { log image "Not found: $file"; exit 1; }
-        [[ -n "$key" && ! -f "$key" ]] && { log ERROR "Key not found: $key"; exit 1; }
+        [[ -n "$key" && ! -f "$key" ]] && { log image "Key not found: $key"; exit 1; }
 
         if [[ "$file" == *.tar.gz || "$file" == *.tgz ]]; then
           tmp=$(mktemp --suffix=.tar)
@@ -65,13 +65,13 @@ in
         ;;
       list|ls)
         target="''${2:-all}"; key="''${3:-}"
-        [[ -n "$key" && ! -f "$key" ]] && { log ERROR "Key not found: $key"; exit 1; }
+        [[ -n "$key" && ! -f "$key" ]] && { log image "Key not found: $key"; exit 1; }
         run_on "$target" "$key" k3s ctr images list -q | grep -v sha256 | sort
         ;;
       rm|remove)
         ref="''${2:-}"; target="''${3:-all}"; key="''${4:-}"
         [[ -z "$ref" ]] && { usage; exit 1; }
-        [[ -n "$key" && ! -f "$key" ]] && { log ERROR "Key not found: $key"; exit 1; }
+        [[ -n "$key" && ! -f "$key" ]] && { log image "Key not found: $key"; exit 1; }
         run_on "$target" "$key" k3s ctr images rm "$ref"
         ;;
       -h|--help) usage ;;

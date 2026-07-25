@@ -6,6 +6,7 @@
   cfg = nodeConfig.storage;
 
   hasRole = role: lib.any (d: lib.elem role d.roles) cfg.disks;
+  etcdMountOptions = ["noatime" "nodiratime" "discard"];
 
   # Build a disko partition attrset for a single disk based on its assigned roles.
   # Only the partition for the first role listed on a disk is created here;
@@ -42,9 +43,7 @@
             type = "filesystem";
             format = "ext4";
             mountpoint = "/var/lib/rancher/k3s/server/db/etcd";
-            # noatime/nodiratime reduce write amplification on SSD;
-            # discard enables continuous TRIM for sustained performance
-            mountOptions = ["noatime" "nodiratime" "discard"];
+            mountOptions = etcdMountOptions;
           };
         };
       })
@@ -116,7 +115,7 @@ in {
                 type = "filesystem";
                 format = "ext4";
                 mountpoint = "/var/lib/rancher/k3s/server/db/etcd";
-                mountOptions = ["noatime" "nodiratime" "discard"];
+                mountOptions = etcdMountOptions;
               };
             };
           })

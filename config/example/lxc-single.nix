@@ -51,7 +51,7 @@
       apiServerPort = 6443;
     };
 
-    loadBalancer.enabled = false;
+    loadBalancer.enable = false;
 
     locations.vps = {description = "VPS LXC";};
 

@@ -14,6 +14,14 @@
 
   log = ''log() { echo "[$(date '+%H:%M:%S')] [$1] $2"; }'';
 
+  mkResourceArgs = component: limits: requests:
+    [
+      "--set ${component}.resources.limits.cpu=${limits.cpu}"
+      "--set ${component}.resources.limits.memory=${limits.memory}"
+      "--set ${component}.resources.requests.cpu=${requests.cpu}"
+      "--set ${component}.resources.requests.memory=${requests.memory}"
+    ];
+
   waitForApi = ''
     for i in $(seq 1 36); do
       if ${kubectl} get --raw /healthz 2>/dev/null | grep -q "ok"; then
@@ -110,6 +118,7 @@ in {
 
   inherit kubectl helm jq log;
   inherit mkStateFileName stateDir;
+  inherit mkResourceArgs;
   inherit waitForApi helmCleanup helmDeploy;
 
   mkHelmService = {

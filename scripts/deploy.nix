@@ -164,6 +164,10 @@ in
         "$TARGET_HOST"
     }
 
+    set_nix_ssh_opts() {
+      export NIX_SSHOPTS="$SSH_OPTS -p $TARGET_PORT ''${key:+-i $key}"
+    }
+
     cmd_rebuild() {
       parse_args "$@" || { usage; exit 1; }
       [[ -z $node ]] && { usage; exit 1; }
@@ -175,7 +179,7 @@ in
       check_host || exit 1
       bootstrap_lxc_host_key || exit 1
 
-      export NIX_SSHOPTS="$SSH_OPTS -p $TARGET_PORT ''${key:+-i $key}"
+      set_nix_ssh_opts
       if [[ $(resolve_platform "$node") == lxc ]]; then
         nixos-rebuild boot --flake ".#$node" --target-host "$TARGET_HOST"
         log "$node" "LXC generation staged; reboot the container from its host to activate it"
@@ -185,10 +189,13 @@ in
     }
 
     cmd_all() {
-      local key="" parallel=false
+      local key="" parallel=false user="" host="" port=""
       while [[ $# -gt 0 ]]; do
         if [[ "$1" == "--parallel" ]]; then parallel=true; shift
         elif [[ "$1" == "-i" || "$1" == "--identity" ]]; then key="$2"; shift 2
+        elif [[ "$1" == "-u" || "$1" == "--user" ]]; then user="$2"; shift 2
+        elif [[ "$1" == "-H" || "$1" == "--host" ]]; then host="$2"; shift 2
+        elif [[ "$1" == "-p" || "$1" == "--port" ]]; then port="$2"; shift 2
         else echo "Unknown: $1" >&2; usage; exit 1
         fi
       done
@@ -196,12 +203,12 @@ in
 
       if $parallel; then
         for n in ${lib.concatStringsSep " " nodeNames}; do
-          cmd_rebuild "$n" ''${key:+-i "$key"} &
+          cmd_rebuild "$n" ''${key:+-i "$key"} ''${user:+-u "$user"} ''${host:+-H "$host"} ''${port:+-p "$port"} &
         done
         wait
       else
         for n in ${lib.concatStringsSep " " nodeNames}; do
-          cmd_rebuild "$n" ''${key:+-i "$key"}
+          cmd_rebuild "$n" ''${key:+-i "$key"} ''${user:+-u "$user"} ''${host:+-H "$host"} ''${port:+-p "$port"}
         done
       fi
     }
@@ -216,7 +223,7 @@ in
       log rollback "$node -> $TARGET_HOST:$TARGET_PORT"
       check_host || exit 1
 
-      export NIX_SSHOPTS="$SSH_OPTS -p $TARGET_PORT ''${key:+-i $key}"
+      set_nix_ssh_opts
       if [[ $(resolve_platform "$node") == lxc ]]; then
         nixos-rebuild boot --rollback --flake ".#$node" --target-host "$TARGET_HOST"
         log "$node" "LXC rollback staged; reboot the container from its host to activate it"

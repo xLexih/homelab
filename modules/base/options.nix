@@ -90,7 +90,7 @@ in {
     loadBalancer = lib.mkOption {
       type = lib.types.submodule {
         options = {
-          enabled = lib.mkEnableOption "LoadBalancer IP pools";
+          enable = lib.mkEnableOption "the load balancer";
           pools = lib.mkOption {
             type = lib.types.attrsOf (lib.types.submodule {
               options = {

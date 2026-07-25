@@ -64,7 +64,7 @@
     # LoadBalancer (kube-vip + Cilium IP pools).
     # Disabled for single-node. Enable with pools for HA clusters
     # that need stable VIPs (bare-metal, on-prem).
-    loadBalancer.enabled = false;
+    loadBalancer.enable = false;
 
     # Locations — referenced by nodes.<name>.location.
     # At least one required. Multiple locations enable the

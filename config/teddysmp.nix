@@ -22,7 +22,7 @@
       lanInterface = "eth0";
     };
 
-    loadBalancer.enabled = false;
+    loadBalancer.enable = false;
 
     locations.teddysmp = {
       description = "TeddySMP US Datacenter";

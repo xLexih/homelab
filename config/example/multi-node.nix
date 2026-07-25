@@ -40,7 +40,7 @@
     # range of VIPs that Cilium allocates from. kube-vip announces
     # the active VIP via ARP on the LAN (requires L2 connectivity).
     loadBalancer = {
-      enabled = true;
+      enable = true;
       pools.home = {
         start = "192.168.2.150";
         stop = "192.168.2.160";

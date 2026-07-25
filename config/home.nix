@@ -20,7 +20,7 @@
     };
 
     loadBalancer = {
-      enabled = true;
+      enable = true;
       pools.home = {
         start = "192.168.2.150";
         stop = "192.168.2.160";
