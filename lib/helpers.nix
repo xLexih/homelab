@@ -172,6 +172,37 @@
 
     corednsReplicas = cluster.coredns.replicas or 2;
 
+    # Convert dotted ipv4 to numeric for comparison
+    ipToNum = ip: let
+      o = lib.splitString "." ip;
+    in lib.foldl' (acc: x: acc * 256 + lib.toInt x) 0 o;
+
+    # CIDR containment: check first N/8 octets match where N = parent prefix length
+    cidrContainedIn = child: parent: let
+      pp = lib.toInt (lib.last (lib.splitString "/" parent));
+      fullOctets = pp / 8;
+      parentNet = builtins.head (lib.splitString "/" parent);
+      childNet = builtins.head (lib.splitString "/" child);
+    in lib.take fullOctets (lib.splitString "." parentNet)
+       == lib.take fullOctets (lib.splitString "." childNet);
+
+    podCIDROutOfRange = lib.filterAttrs (name: node:
+      node.podCIDR != null
+      && !cidrContainedIn node.podCIDR cluster.network.podCIDR
+    ) cluster.nodes;
+
+    wgIPOutOfRange = lib.filterAttrs (_: node:
+      !cidrContainedIn node.network.wgIP cluster.network.wgCIDR
+    ) cluster.nodes;
+
+    invalidPoolOrder = lib.filterAttrs (_: pool:
+      ipToNum pool.start > ipToNum pool.stop
+    ) (cluster.loadBalancer.pools or {});
+
+    invalidName = let
+      nameOk = builtins.match "^[a-zA-Z][-a-zA-Z0-9]*$" cluster.name;
+    in nameOk == null;
+
     errors =
       (
         if initCount == 0
@@ -235,6 +266,26 @@
       ++ (
         if masterCount > 0 && corednsReplicas > masterCount
         then ["coredns.replicas (${toString corednsReplicas}) exceeds master node count (${toString masterCount}). Set coredns.replicas <= ${toString masterCount}."]
+        else []
+      )
+      ++ (
+        if podCIDROutOfRange != {}
+        then ["Node podCIDR not within cluster.network.podCIDR (${cluster.network.podCIDR}): ${builtins.concatStringsSep ", " (builtins.attrNames podCIDROutOfRange)}"]
+        else []
+      )
+      ++ (
+        if wgIPOutOfRange != {}
+        then ["Node wgIP not within cluster.network.wgCIDR (${cluster.network.wgCIDR}): ${builtins.concatStringsSep ", " (builtins.attrNames wgIPOutOfRange)}"]
+        else []
+      )
+      ++ (
+        if invalidPoolOrder != {}
+        then ["LoadBalancer pool start > stop: ${builtins.concatStringsSep ", " (lib.mapAttrsToList (loc: pool: "${loc}: ${pool.start} > ${pool.stop}") invalidPoolOrder)}"]
+        else []
+      )
+      ++ (
+        if invalidName
+        then ["Cluster name '${cluster.name}' is not a valid identifier. Use alphanumeric characters and hyphens, starting with a letter."]
         else []
       );
   in {

@@ -1,6 +1,8 @@
 {lib, ...}: let
-  cidrType = lib.types.strMatching "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}/[0-9]{1,2}$";
-  ipv4Type = lib.types.strMatching "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$";
+  octet = "([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])";
+  prefix = "(3[0-2]|[12]?[0-9])";
+  cidrType = lib.types.strMatching "^${octet}\\.${octet}\\.${octet}\\.${octet}/${prefix}$";
+  ipv4Type = lib.types.strMatching "^${octet}\\.${octet}\\.${octet}\\.${octet}$";
 in {
   options.cluster = {
     name = lib.mkOption {
