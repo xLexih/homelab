@@ -62,6 +62,8 @@ in
       # RWX storage class required for multi-replica Docker registry
       systemd.services.registry-rwx-storageclass = {
         wantedBy = ["multi-user.target"];
+        after = ["helm-deploy-longhorn.service"];
+        requires = ["helm-deploy-longhorn.service"];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -91,6 +93,7 @@ in
     })
     {
       systemd.services.helm-deploy-registry = mkHelmService {
+        after = ["registry-rwx-storageclass.service"];
         name = "Docker Registry";
         release = "registry";
         namespace = "registry";
@@ -107,6 +110,8 @@ in
         chart = "joxit/docker-registry-ui";
         version = versions.dockerRegistryUI;
         extraArgs = registryUIArgs;
+        after = ["helm-deploy-registry.service"];
+        requires = ["helm-deploy-registry.service"];
       });
     }
   ])

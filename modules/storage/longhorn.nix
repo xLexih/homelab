@@ -10,6 +10,7 @@
 in
   lib.mkIf (clusterConfig.storageBackend == "longhorn") {
     systemd.services.helm-deploy-longhorn = lib.mkIf isInit (mkHelmService {
+      after = ["helm-deploy-cilium.service"];
       name = "Longhorn Storage";
       release = "longhorn";
       namespace = "longhorn-system";

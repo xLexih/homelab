@@ -61,10 +61,13 @@ in
       version = versions.kubeVip;
       extraArgs = kubeVipArgs;
       postDeploy = kubeVipPostDeploy;
+      after = ["helm-deploy-cilium.service"];
     });
 
     systemd.services.cilium-lb-pools = lib.mkIf isInit {
       wantedBy = ["multi-user.target"];
+      after = ["helm-deploy-cilium.service" "helm-deploy-kube-vip.service"];
+      requires = ["helm-deploy-cilium.service"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;

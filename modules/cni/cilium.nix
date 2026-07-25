@@ -66,5 +66,6 @@ in {
     version = versions.cilium;
     extraArgs = ciliumArgs;
     postDeploy = ciliumPostDeploy;
+    before = ["helm-deploy-kube-vip.service" "helm-deploy-longhorn.service" "deploy-nvidia-device-plugin.service"];
   });
 }

@@ -42,6 +42,7 @@
 in
   lib.mkIf (isInit && isMaster && hasNvidiaGpu) {
     systemd.services.deploy-nvidia-device-plugin = mkHelmService {
+      after = ["helm-deploy-cilium.service"];
       name = "NVIDIA Device Plugin";
       release = "nvidia-device-plugin";
       namespace = "kube-system";

@@ -128,19 +128,26 @@ in {
     extraArgs ? [],
     preDeploy ? "",
     postDeploy ? "",
+    after ? [],
+    before ? [],
+    requires ? [],
+    extraServiceConfig ? {},
   }: let
     stateFile = "${stateDir}/${mkStateFileName release version extraArgs}.deployed";
     argsArrayStr = lib.concatStringsSep " " extraArgs;
   in {
     description = "Deploy ${name}";
     wantedBy = ["multi-user.target"];
+    after = ["network-online.target" "k3s.service" "helm-repo-setup.service"] ++ after;
+    before = before;
+    requires = ["network-online.target" "k3s.service"] ++ requires;
     unitConfig.ConditionPathExists = "!${stateFile}";
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       Restart = "no";
       TimeoutStartSec = "15m";
-    };
+    } // extraServiceConfig;
     script = ''
       export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
       mkdir -p ${stateDir}
