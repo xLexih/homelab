@@ -73,7 +73,6 @@
           enable = true;
           vendor = "nvidia";
           pciId = "07:00";
-          withCuda = true;
           # model and memory are Kubernetes node labels for
           # workload scheduling visibility.
           model = "NVIDIA-GTX-1660-SUPER";

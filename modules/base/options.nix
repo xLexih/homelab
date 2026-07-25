@@ -238,11 +238,6 @@ in {
                     Leave empty if no GPU is passed through.
                   '';
                 };
-                withCuda = lib.mkOption {
-                  type = lib.types.bool;
-                  default = true;
-                  description = "Install CUDA toolkit (NVIDIA only)";
-                };
                 model = lib.mkOption {
                   type = lib.types.nullOr lib.types.str;
                   default = null;

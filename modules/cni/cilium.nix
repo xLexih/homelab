@@ -20,10 +20,10 @@
     "--set operator.k8sServicePort=${apiPort}"
     "--set ipam.mode=kubernetes"
     "--set ipam.operator.clusterPoolIPv4PodCIDR=${clusterConfig.network.podCIDR}"
-     "--set cni.exclusive=false" # Octelium requires Multus to coexist with the primary CNI
-     "--set cni.customConf=true" # Multus owns /etc/cni/net.d as the primary CNI entrypoint
-     "--set cni.write-cni-conf-when-ready=/etc/cni/net.d/05-cilium.conflist" # ensure primary CNI config exists for Multus
-     "--set routingMode=native"
+    "--set cni.exclusive=false" # Octelium requires Multus to coexist with the primary CNI
+    "--set cni.customConf=true" # Multus owns /etc/cni/net.d as the primary CNI entrypoint
+    "--set cni.write-cni-conf-when-ready=/etc/cni/net.d/05-cilium.conflist" # ensure primary CNI config exists for Multus
+    "--set routingMode=native"
     "--set tunnelProtocol=geneve"
     "--set ipv4NativeRoutingCIDR=${clusterConfig.network.podCIDR}"
     "--set autoDirectNodeRoutes=false"

@@ -73,12 +73,12 @@
   '';
 in {
   versions = {
-    cilium = "1.19.3";
-    longhorn = "v1.11.1";
-    kubeVip = "0.9.8";
+    cilium = "1.19.4";
+    longhorn = "1.12.0";
+    kubeVip = "0.9.9";
     dockerRegistry = "v3.0.0";
     dockerRegistryUI = "1.1.4";
-    nvidiaDevicePlugin = "0.19.1";
+    nvidiaDevicePlugin = "0.19.3";
   };
 
   helmRepos = [

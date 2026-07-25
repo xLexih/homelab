@@ -168,6 +168,10 @@
         && node.storage.disks != [])
       cluster.nodes;
 
+    masterCount = builtins.length (builtins.attrNames masterNodes);
+
+    corednsReplicas = cluster.coredns.replicas or 2;
+
     errors =
       (
         if initCount == 0
@@ -226,6 +230,11 @@
       ++ (
         if lxcNodesWithDisks != {}
         then ["LXC nodes use host-managed storage and must leave storage.disks empty: ${builtins.concatStringsSep ", " (builtins.attrNames lxcNodesWithDisks)}"]
+        else []
+      )
+      ++ (
+        if masterCount > 0 && corednsReplicas > masterCount
+        then ["coredns.replicas (${toString corednsReplicas}) exceeds master node count (${toString masterCount}). Set coredns.replicas <= ${toString masterCount}."]
         else []
       );
   in {

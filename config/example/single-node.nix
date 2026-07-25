@@ -127,7 +127,6 @@
           enable = false;
           vendor = "nvidia";
           pciId = "";
-          withCuda = true;
           model = null;
           memory = null;
         };

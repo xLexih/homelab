@@ -52,7 +52,6 @@
           enable = true;
           vendor = "nvidia";
           pciId = "07:00";
-          withCuda = true;
           model = "NVIDIA-GTX-1660-SUPER";
           memory = "6144Mi";
         };
