@@ -1,17 +1,18 @@
-{self, ...}:
+{
+  lib,
+  self,
+  ...
+}:
 # self must be added to specialArgs in flake.nix
 {
   users.users = {
-    nixos = {
-      isNormalUser = true;
-      extraGroups = ["wheel"];
-      openssh.authorizedKeys.keyFiles = [
-        "${self}/secrets/admin.pub"
-      ];
+    root = {
+      initialHashedPassword = lib.mkForce null;
+      hashedPassword = lib.mkForce "!";
     };
     admin = {
       isNormalUser = true;
-      password = "admin";
+      hashedPassword = "!";
       extraGroups = ["wheel"];
       openssh.authorizedKeys.keyFiles = [
         "${self}/secrets/admin.pub"

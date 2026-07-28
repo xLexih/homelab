@@ -9,29 +9,34 @@
 
   isInit = nodeConfig.init;
   lb = clusterConfig.loadBalancer;
-  useLB = lb.enable or false;
+  useLB = lb.enable;
 
-  kubeVipArgs = [
-    "--set env.vip_arp=true"
-    "--set env.vip_subnet=32"
-    "--set env.svc_enable=true"
-    "--set env.svc_election=true" # Per-service leader election for better load distribution
-    "--set env.lb_enable=true"
-    "--set env.vip_interface=${clusterConfig.network.lanInterface}"
-    "--set env.vip_leaderelection=true"
-    # Lease timing: 5min lease, 2min renew deadline, 30s retry
-    "--set env.vip_leaseduration=300"
-    "--set env.vip_renewdeadline=120"
-    "--set env.vip_retryperiod=30"
-    # Preserve VIP during leadership transition (smoother failover)
-    "--set env.preserveVIPOnLeadershipLoss=true"
-    "--set-json nodeSelector='{\"node-role.kubernetes.io/control-plane\":\"true\"}'"
-    "--set tolerations[0].key=node-role.kubernetes.io/control-plane"
-    "--set tolerations[0].operator=Exists"
-    "--set tolerations[0].effect=NoSchedule"
-    "--set resources.requests.cpu=50m"
-    "--set resources.requests.memory=64Mi"
-  ] ++ mkResourceArgs "" { cpu = "200m"; memory = "128Mi"; } {};
+  kubeVipArgs =
+    [
+      "--set env.vip_arp=true"
+      "--set env.vip_subnet=32"
+      "--set env.svc_enable=true"
+      "--set env.svc_election=true" # Per-service leader election for better load distribution
+      "--set env.lb_enable=true"
+      "--set env.vip_interface=${clusterConfig.network.lanInterface}"
+      "--set env.vip_leaderelection=true"
+      # Match kube-vip defaults for prompt failover without excessive API traffic.
+      "--set env.vip_leaseduration=15"
+      "--set env.vip_renewdeadline=10"
+      "--set env.vip_retryperiod=2"
+      # Preserve VIP during leadership transition (smoother failover)
+      "--set env.preserveVIPOnLeadershipLoss=true"
+      "--set-json nodeSelector='{\"node-role.kubernetes.io/control-plane\":\"true\"}'"
+      "--set tolerations[0].key=node-role.kubernetes.io/control-plane"
+      "--set tolerations[0].operator=Exists"
+      "--set tolerations[0].effect=NoSchedule"
+      "--set resources.requests.cpu=50m"
+      "--set resources.requests.memory=64Mi"
+    ]
+    ++ mkResourceArgs "" {
+      cpu = "200m";
+      memory = "128Mi";
+    } {};
 
   kubeVipPostDeploy = ''
     ${kubectl} rollout status daemonset kube-vip -n kube-system --timeout=300s

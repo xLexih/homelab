@@ -10,6 +10,7 @@
 {...}: {
   cluster = {
     name = "single";
+    stateVersion = "26.05";
 
     # Storage backend (no replicas, single point of failure).
     # "local"    — k3s local-path provisioner. Simple, zero deps.
@@ -115,7 +116,7 @@
 
           # SSH access
           sshPort = 22;
-          sshUser = "nixos";
+          sshUser = "admin";
         };
 
         # Per-node pod CIDR — must be a /24 unique across all nodes

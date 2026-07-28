@@ -52,8 +52,7 @@ in
       extraArgs = devicePluginArgs;
       inherit preDeploy;
       postDeploy = ''
-        ${kubectl} rollout status daemonset nvidia-device-plugin -n kube-system --timeout=120s || \
-          echo "[nvidia-device-plugin] Not ready yet (will retry on next boot)"
+        ${kubectl} rollout status daemonset nvidia-device-plugin -n kube-system --timeout=120s
       '';
     };
   }

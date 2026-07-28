@@ -71,6 +71,9 @@ in
           ${age} -R secrets/admin.pub -o secrets/hosts/${n}/ssh-key.age "$tmp/key"
           ${rm} -rf "$tmp"
           log init "Generated host key for ${n}"
+        elif [[ ! -f secrets/hosts/${n}/ssh-key.age ]]; then
+          log init "ERROR: Missing encrypted host key backup for ${n}"
+          exit 1
         fi
       '')
       nodeNames)}
@@ -82,14 +85,18 @@ in
       }
 
       ${lib.concatStringsSep "\n" (map (n: ''
-        [[ -f secrets/hosts/${n}/wireguard.age ]] || {
+        if [[ -f secrets/hosts/${n}/wireguard.age ]] && [[ ! -s secrets/hosts/${n}/wireguard.pub ]]; then
+          ${age} -d -i ~/.ssh/k3s-admin secrets/hosts/${n}/wireguard.age \
+            | ${wg} pubkey > secrets/hosts/${n}/wireguard.pub
+          log init "Recovered hosts/${n}/wireguard.pub"
+        elif [[ ! -f secrets/hosts/${n}/wireguard.age ]]; then
           priv=$(${wg} genkey)
           echo "$priv" \
             | ${age} -R secrets/admin.pub -R secrets/hosts/${n}/ssh-key.pub \
                 -o secrets/hosts/${n}/wireguard.age
           echo "$priv" | ${wg} pubkey > secrets/hosts/${n}/wireguard.pub
           log init "Created hosts/${n}/wireguard.{age,pub}"
-        }
+        fi
       '')
       nodeNames)}
 
@@ -110,14 +117,14 @@ in
 
     cmd_restore() {
       ${lib.concatStringsSep "\n" (map (n: ''
-        [[ -f secrets/hosts/${n}/ssh-key.age ]] || {
+        if [[ -f secrets/hosts/${n}/ssh-key.age ]]; then
+          ${age} -d -i ~/.ssh/k3s-admin secrets/hosts/${n}/ssh-key.age \
+            > secrets/hosts/${n}/ssh-key.plaintext
+          chmod 600 secrets/hosts/${n}/ssh-key.plaintext
+          log restore "Decrypted ${n}/ssh-key.plaintext"
+        else
           log restore "SKIP ${n} — no backup"
-          continue 2>/dev/null || true
-        }
-        ${age} -d -i ~/.ssh/k3s-admin secrets/hosts/${n}/ssh-key.age \
-          > secrets/hosts/${n}/ssh-key.plaintext
-        chmod 600 secrets/hosts/${n}/ssh-key.plaintext
-        log restore "Decrypted ${n}/ssh-key.plaintext"
+        fi
       '')
       nodeNames)}
       echo "Plaintext keys written. Run 'secrets encrypt' after use to re-encrypt and remove."
@@ -130,6 +137,10 @@ in
       log rekey "k3s-token.age"
 
       ${lib.concatStringsSep "\n" (map (n: ''
+        [[ -f secrets/hosts/${n}/ssh-key.age ]] && {
+          rekey_file secrets/hosts/${n}/ssh-key.age -R secrets/admin.pub
+          log rekey "hosts/${n}/ssh-key.age"
+        }
         [[ -f secrets/hosts/${n}/wireguard.age ]] && {
           rekey_file secrets/hosts/${n}/wireguard.age \
             -R secrets/admin.pub -R secrets/hosts/${n}/ssh-key.pub

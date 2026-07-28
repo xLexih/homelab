@@ -23,11 +23,38 @@
   in
     if net.sshUser != null
     then net.sshUser
-    else "nixos";
+    else "admin";
 
   nodeWgIP = n: cluster.nodes.${n}.network.wgIP;
 
-  sshOpts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o ControlMaster=no -o ControlPath=none";
+  nodeWgPort = n: let
+    net = cluster.nodes.${n}.network;
+  in
+    if net.wgPort != null
+    then net.wgPort
+    else cluster.network.wgPort;
+
+  sshOpts = "-o BatchMode=yes -o ConnectTimeout=5 -o ControlMaster=no -o ControlPath=none";
+
+  mkKnownHosts = secretsRoot:
+    lib.concatMapStrings (name: let
+      net = cluster.nodes.${name}.network;
+      port = nodePort name;
+      key = lib.removeSuffix "\n" (builtins.readFile (secretsRoot + "/hosts/${name}/ssh-key.pub"));
+      hosts = lib.unique (lib.filter (host: host != null) [
+        (nodeIp name)
+        net.lanIP
+        net.wgIP
+        net.endpoint
+        net.wgEndpoint
+      ]);
+      knownHost = host:
+        if port == "22"
+        then host
+        else "[${host}]:${port}";
+    in
+      lib.concatMapStrings (host: "${knownHost host} ${key}\n") hosts)
+    (builtins.attrNames cluster.nodes);
 
   mkResolver = name: func: let
     nodeNames = builtins.attrNames cluster.nodes;
@@ -95,7 +122,7 @@
     initNodes = lib.filterAttrs (_: n: n.init) cluster.nodes;
     initCount = builtins.length (builtins.attrNames initNodes);
 
-    # Collect non‑null values from each node, then find duplicates
+    # Collect non-null values from each node, then find duplicates.
     findDups = mapper: let
       vals = lib.filter (v: v != null) (lib.mapAttrsToList (_: mapper) cluster.nodes);
     in
@@ -140,9 +167,12 @@
       else {};
 
     registryErrors =
-      if cluster.registry.type != "docker" then []
-      else if cluster.storageBackend == "longhorn" then []
-      else if cluster.storageBackend == "local" && builtins.length (builtins.attrNames cluster.nodes) == 1 then []
+      if cluster.registry.type != "docker"
+      then []
+      else if cluster.storageBackend == "longhorn"
+      then []
+      else if cluster.storageBackend == "local" && builtins.length (builtins.attrNames cluster.nodes) == 1
+      then []
       else ["Docker registry requires storageBackend = 'longhorn' (or 'local' with a single node). Current: ${cluster.storageBackend}"];
 
     dhcpMissingEndpoint =
@@ -172,36 +202,126 @@
 
     corednsReplicas = cluster.coredns.replicas or 2;
 
-    # Convert dotted ipv4 to numeric for comparison
+    # Convert dotted IPv4 to numeric form for exact CIDR comparisons.
     ipToNum = ip: let
       o = lib.splitString "." ip;
-    in lib.foldl' (acc: x: acc * 256 + lib.toInt x) 0 o;
+    in
+      lib.foldl' (acc: x: acc * 256 + lib.toInt x) 0 o;
 
-    # CIDR containment: check first N/8 octets match where N = parent prefix length
+    pow2 = exponent:
+      if exponent == 0
+      then 1
+      else 2 * pow2 (exponent - 1);
+
+    cidrBounds = value: let
+      parts = lib.splitString "/" value;
+      ip = builtins.head parts;
+      prefix =
+        if builtins.length parts == 1
+        then 32
+        else lib.toInt (lib.last parts);
+      size = pow2 (32 - prefix);
+      first = (ipToNum ip / size) * size;
+    in {
+      inherit first;
+      last = first + size - 1;
+    };
+
     cidrContainedIn = child: parent: let
-      pp = lib.toInt (lib.last (lib.splitString "/" parent));
-      fullOctets = pp / 8;
-      parentNet = builtins.head (lib.splitString "/" parent);
-      childNet = builtins.head (lib.splitString "/" child);
-    in lib.take fullOctets (lib.splitString "." parentNet)
-       == lib.take fullOctets (lib.splitString "." childNet);
+      childBounds = cidrBounds child;
+      parentBounds = cidrBounds parent;
+    in
+      childBounds.first
+      >= parentBounds.first
+      && childBounds.last <= parentBounds.last;
 
-    podCIDROutOfRange = lib.filterAttrs (name: node:
-      node.podCIDR != null
-      && !cidrContainedIn node.podCIDR cluster.network.podCIDR
-    ) cluster.nodes;
+    cidrOverlaps = left: right: let
+      leftBounds = cidrBounds left;
+      rightBounds = cidrBounds right;
+    in
+      leftBounds.first
+      <= rightBounds.last
+      && rightBounds.first <= leftBounds.last;
 
-    wgIPOutOfRange = lib.filterAttrs (_: node:
-      !cidrContainedIn node.network.wgIP cluster.network.wgCIDR
-    ) cluster.nodes;
+    overlappingPairs = entries:
+      lib.concatLists (lib.imap0 (index: left:
+        map
+        (right: "${left.name} (${left.cidr}) overlaps ${right.name} (${right.cidr})")
+        (lib.filter (right: cidrOverlaps left.cidr right.cidr) (lib.drop (index + 1) entries)))
+      entries);
 
-    invalidPoolOrder = lib.filterAttrs (_: pool:
-      ipToNum pool.start > ipToNum pool.stop
+    nodePodCIDRs = lib.filter (entry: entry.cidr != null) (
+      lib.mapAttrsToList (name: node: {
+        inherit name;
+        cidr = node.podCIDR;
+      })
+      cluster.nodes
+    );
+
+    overlappingPodCIDRs = overlappingPairs nodePodCIDRs;
+
+    overlappingClusterCIDRs = overlappingPairs [
+      {
+        name = "network.podCIDR";
+        cidr = cluster.network.podCIDR;
+      }
+      {
+        name = "network.serviceCIDR";
+        cidr = cluster.network.serviceCIDR;
+      }
+      {
+        name = "network.wgCIDR";
+        cidr = cluster.network.wgCIDR;
+      }
+    ];
+
+    podCIDROutOfRange =
+      lib.filterAttrs (
+        name: node:
+          node.podCIDR
+          != null
+          && !cidrContainedIn node.podCIDR cluster.network.podCIDR
+      )
+      cluster.nodes;
+
+    wgIPOutOfRange =
+      lib.filterAttrs (
+        _: node:
+          !cidrContainedIn node.network.wgIP cluster.network.wgCIDR
+      )
+      cluster.nodes;
+
+    invalidPoolOrder = lib.filterAttrs (
+      _: pool:
+        ipToNum pool.start > ipToNum pool.stop
+    ) (cluster.loadBalancer.pools or {});
+
+    poolOutsideLocation = lib.filterAttrs (
+      location: pool: let
+        staticNodes =
+          lib.filterAttrs (
+            _: node:
+              node.location
+              == location
+              && node.network.lanIP != null
+          )
+          cluster.nodes;
+        inLocationSubnet = lib.any (node: let
+          lanCIDR = "${node.network.lanIP}/${toString node.network.lanPrefixLength}";
+        in
+          cidrContainedIn pool.start lanCIDR
+          && cidrContainedIn pool.stop lanCIDR)
+        (lib.attrValues staticNodes);
+      in
+        staticNodes != {} && !inLocationSubnet
     ) (cluster.loadBalancer.pools or {});
 
     invalidName = let
       nameOk = builtins.match "^[a-zA-Z][-a-zA-Z0-9]*$" cluster.name;
-    in nameOk == null;
+    in
+      nameOk == null;
+
+    storageNodeCount = builtins.length (builtins.attrNames (nodesWithRole "storage"));
 
     errors =
       (
@@ -225,6 +345,11 @@
       ++ (
         if dupPodCIDRs != []
         then ["Duplicate podCIDRs: ${builtins.concatStringsSep ", " dupPodCIDRs}"]
+        else []
+      )
+      ++ (
+        if overlappingPodCIDRs != []
+        then ["Overlapping node podCIDRs: ${builtins.concatStringsSep "; " overlappingPodCIDRs}"]
         else []
       )
       ++ (
@@ -269,6 +394,21 @@
         else []
       )
       ++ (
+        if masterCount > 1 && lib.mod masterCount 2 == 0
+        then ["HA clusters require an odd number of master nodes; found ${toString masterCount}"]
+        else []
+      )
+      ++ (
+        if cluster.storageBackend == "longhorn" && storageNodeCount < 2
+        then ["Longhorn requires at least two storage nodes; found ${toString storageNodeCount}"]
+        else []
+      )
+      ++ (
+        if overlappingClusterCIDRs != []
+        then ["Cluster network CIDRs overlap: ${builtins.concatStringsSep "; " overlappingClusterCIDRs}"]
+        else []
+      )
+      ++ (
         if podCIDROutOfRange != {}
         then ["Node podCIDR not within cluster.network.podCIDR (${cluster.network.podCIDR}): ${builtins.concatStringsSep ", " (builtins.attrNames podCIDROutOfRange)}"]
         else []
@@ -281,6 +421,11 @@
       ++ (
         if invalidPoolOrder != {}
         then ["LoadBalancer pool start > stop: ${builtins.concatStringsSep ", " (lib.mapAttrsToList (loc: pool: "${loc}: ${pool.start} > ${pool.stop}") invalidPoolOrder)}"]
+        else []
+      )
+      ++ (
+        if poolOutsideLocation != {}
+        then ["LoadBalancer pools outside their location LAN subnet: ${builtins.concatStringsSep ", " (builtins.attrNames poolOutsideLocation)}"]
         else []
       )
       ++ (

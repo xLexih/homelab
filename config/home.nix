@@ -1,6 +1,7 @@
 {...}: {
   cluster = {
     name = "home";
+    stateVersion = "26.05";
     storageBackend = "longhorn";
 
     registry = {
@@ -45,7 +46,7 @@
           lanIP = "192.168.2.105";
           gateway = "192.168.2.1";
           sshPort = 22;
-          sshUser = "root";
+          sshUser = "admin";
         };
         podCIDR = "10.42.0.0/24";
         gpu = {
@@ -61,7 +62,7 @@
               device = "/dev/sdb";
               roles = ["system" "etcd"];
               sizes = {
-                system = "40G";
+                system = "56G";
                 etcd = "100%FREE";
               };
             }
@@ -84,7 +85,7 @@
           lanIP = "192.168.2.106";
           gateway = "192.168.2.1";
           sshPort = 22;
-          sshUser = "root";
+          sshUser = "admin";
         };
         podCIDR = "10.42.1.0/24";
         storage = {
@@ -116,7 +117,7 @@
           lanIP = "192.168.2.107";
           gateway = "192.168.2.1";
           sshPort = 22;
-          sshUser = "root";
+          sshUser = "admin";
         };
         podCIDR = "10.42.2.0/24";
         storage = {

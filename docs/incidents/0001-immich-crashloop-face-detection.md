@@ -1,5 +1,8 @@
 # Incident: Immich Server CrashLoopBackOff — Poisoned Face Detection Queue
 
+> Archived legacy application incident. Referenced `apps/` files are no longer
+> part of the active cluster project.
+
 **Date:** 2026-05-18
 **Duration:** ~3h 20m
 **Severity:** major

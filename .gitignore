@@ -8,7 +8,5 @@ result-*
 *.tar.gz
 
 .env
-apps/**/*secret*
-!apps/**/*.age
 secrets/hosts/*/ssh-key.plaintext
 *.private

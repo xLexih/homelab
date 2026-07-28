@@ -1,5 +1,12 @@
-{ lib, pkgs, self, inputs, root, configPath, system ? "x86_64-linux" }:
-let
+{
+  lib,
+  pkgs,
+  self,
+  inputs,
+  root,
+  configPath,
+  system ? "x86_64-linux",
+}: let
   clusterEval = lib.evalModules {
     modules = [
       (root + "/modules/base/options.nix")
@@ -21,7 +28,7 @@ in
         inherit system;
         specialArgs = {
           inherit self clusterConfig helpers;
-          helmDefaults = import (root + "/modules/kubernetes/helm-lib.nix") { inherit pkgs lib; };
+          helmDefaults = import (root + "/modules/kubernetes/helm-lib.nix") {inherit pkgs lib;};
           nodeName = name;
           nodeConfig = nodeCfg;
         };
@@ -44,17 +51,16 @@ in
             (root + "/modules/storage")
             (root + "/modules/loadbalancer")
             (root + "/modules/registry")
-            { programs.nix-index-database.comma.enable = true; }
           ];
       })
     clusterConfig.nodes;
 
     packages = {
       "${system}" = {
-        "deploy-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/deploy.nix") { inherit clusterConfig; };
-        "image-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/image.nix") { inherit clusterConfig; };
-        "secrets-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/secrets.nix") { inherit clusterConfig; };
-        "config-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/get-kubeconfig.nix") { inherit clusterConfig; };
+        "deploy-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/deploy.nix") {inherit clusterConfig;};
+        "image-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/image.nix") {inherit clusterConfig;};
+        "secrets-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/secrets.nix") {inherit clusterConfig;};
+        "config-${clusterConfig.name}" = pkgs.callPackage (root + "/scripts/get-kubeconfig.nix") {inherit clusterConfig;};
       };
     };
   }

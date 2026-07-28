@@ -1,71 +1,82 @@
- ## 1. Prepare the Sylant Proxmox host
+# Verification
 
-  Run on the Proxmox host, replacing <ctid>:
+## Local checks
 
-  mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf
+```bash
+nix fmt
+nix flake check --show-trace
+nix build --no-link \
+  .#deploy-home .#image-home .#secrets-home .#config-home \
+  .#deploy-teddysmp .#image-teddysmp .#secrets-teddysmp .#config-teddysmp
+```
 
-  modprobe wireguard geneve iscsi_tcp
-  printf '%s\n' wireguard geneve iscsi_tcp \
-    >/etc/modules-load.d/k3s-lxc.conf
+Confirm the effective release and state version:
 
-  pct set <ctid> --features nesting=1,keyctl=1
+```bash
+nix eval --raw .#nixosConfigurations.master1.config.system.nixos.release
+nix eval --raw .#nixosConfigurations.master1.config.system.stateVersion
+```
 
-  Add these lines to /etc/pve/lxc/<ctid>.conf:
+Both values must be `26.05`.
 
-  lxc.apparmor.profile: unconfined
-  lxc.mount.entry: /sys/fs/bpf sys/fs/bpf none bind,create=dir
-  lxc.cgroup2.devices.allow: c 10:200 rwm
-  lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+## CLI smoke tests
 
-  Restart the container:
+```bash
+nix run .#deploy-home -- --help
+nix run .#image-home -- --help
+nix run .#secrets-home -- --help
+nix run .#config-home -- --help
+```
 
-  pct reboot <ctid>
+The home deployment order must be `master2 -> master3 -> master1`.
 
-  ## 2. Configure UDP forwarding
+## Deployment verification
 
-  Home router:
+Deploy one non-init node first:
 
-  flowernode.com:51821/UDP → 192.168.2.105:51820  # master1
-  flowernode.com:51822/UDP → 192.168.2.106:51820  # master2
-  flowernode.com:51823/UDP → 192.168.2.107:51820  # master3
+```bash
+nix run .#deploy-home -- rebuild master2 -i ~/.ssh/k3s-admin
+```
 
-  Sylant router/Proxmox:
+The command must verify the managed host key, complete the rebuild, and confirm
+that `k3s.service` is active.
 
-  teddysmp.com:51820/UDP → 192.168.2.100:51820
+Then verify the cluster:
 
-  ## 3. Rebuild the existing masters
+```bash
+nix run .#config-home -- master1 ~/.ssh/k3s-admin
+# Start the tunnel printed by the command in another terminal.
+KUBECONFIG=~/.kube/home.yaml kubectl get nodes -o wide
+KUBECONFIG=~/.kube/home.yaml kubectl get pods -A
+KUBECONFIG=~/.kube/home.yaml cilium status --wait
+```
 
-  From /data/project/homelab/cluster:
+All three home nodes must be `Ready`. TeddySMP is a separate cluster and must
+not appear in this output.
 
-  for node in master1 master2 master3; do
-    nix run .#deploy -- rebuild "$node" -i ~/.ssh/k3s-admin
-  done
+## Failure tests
 
-  ## 4. Bootstrap and rebuild teddysmp
+Perform these tests during a maintenance window:
 
-  Ensure ~/.ssh/k3s-admin exists; it decrypts the generated managed host identity.
+1. Stop kube-vip on its current leader and measure service-address failover.
+2. Reboot one non-init home master and confirm etcd quorum and API access.
+3. Change a Helm value, rebuild the init node, and confirm reconciliation.
+4. Stop Cilium during boot and confirm the WireGuard NAT service retries.
+5. Import one image with target `all` and confirm it exists on every home node.
 
-  nix run .#deploy -- rebuild teddysmp \
-    -i ~/.ssh/sylant_ed25519 \
-    -H 83.147.217.249 \
-    -u root
+## LXC verification
 
-  This first rebuild replaces the temporary LXC SSH host identity and authorized login key. Afterwards, use ~/.ssh/k3s-admin.
+After staging and rebooting TeddySMP:
 
-  ## 5. Verify
+```bash
+nix run .#config-teddysmp -- teddysmp ~/.ssh/k3s-admin
+# Start the printed tunnel.
+KUBECONFIG=~/.kube/teddysmp.yaml kubectl get nodes -o wide
+```
 
-  ssh -i ~/.ssh/k3s-admin root@teddysmp.com \
-    'hostname; systemctl is-active wireguard-wg0 k3s; wg show'
+The cluster must contain only the `teddysmp` node:
 
-  From master1:
-
-  ssh -i ~/.ssh/k3s-admin root@192.168.2.105 \
-    'k3s kubectl get nodes -o wide'
-
-  teddysmp should appear Ready, with zone sylant.
-
-  Future full-cluster rebuilds:
-
-  nix run .#deploy -- all -i ~/.ssh/k3s-admin
-
-  The full teddysmp closure, deployment helper, generated SSH targets, WireGuard endpoints, and flake checks all pass. No remote configuration was changed during inspection.
+```bash
+ssh -i ~/.ssh/k3s-admin admin@teddysmp.com \
+  'systemctl is-active wireguard-wg0 k3s; sudo wg show'
+```

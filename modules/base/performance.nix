@@ -1,17 +1,16 @@
 {
-  pkgs,
   lib,
   nodeConfig,
   ...
 }: let
   isLxc = nodeConfig.platform == "lxc";
 in {
-  config = lib.mkMerge [
+  config =
     {
       # k3s service needs high file descriptor limit
       systemd.services.k3s.serviceConfig.LimitNOFILE = 1048576;
     }
-    (lib.mkIf (!isLxc) {
+    // lib.mkIf (!isLxc) {
       # Unprivileged LXC cannot raise PAM session limits above the host's
       # allowance. Keep these host-level limits on VMs only.
       security.pam.loginLimits = [
@@ -28,8 +27,6 @@ in {
           value = "1048576";
         }
       ];
-
-      boot.kernelPackages = pkgs.linuxPackages_latest;
 
       boot.kernelModules = [
         "br_netfilter" # allow iptables to filter bridged traffic
@@ -125,6 +122,5 @@ in {
           size = 2048;
         }
       ];
-    })
-  ];
+    };
 }

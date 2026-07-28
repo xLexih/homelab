@@ -6,17 +6,13 @@
   helm = "${pkgs.kubernetes-helm}/bin/helm";
   jq = "${pkgs.jq}/bin/jq";
   awk = "${pkgs.gawk}/bin/awk";
-  stateDir = "/var/lib/helm-deploy";
-
-  mkStateFileName = release: version: extras: let
-    configHash = builtins.hashString "sha256" (lib.concatStringsSep "::" ([version] ++ extras));
-  in "${release}-${builtins.substring 0 16 configHash}";
-
   log = ''log() { echo "[$(date '+%H:%M:%S')] [$1] $2"; }'';
 
   mkResourceArgs = component: limits: requests:
-    ["--set ${component}.resources.limits.cpu=${limits.cpu}"
-      "--set ${component}.resources.limits.memory=${limits.memory}"]
+    [
+      "--set ${component}.resources.limits.cpu=${limits.cpu}"
+      "--set ${component}.resources.limits.memory=${limits.memory}"
+    ]
     ++ lib.optionals (requests ? cpu) ["--set ${component}.resources.requests.cpu=${requests.cpu}"]
     ++ lib.optionals (requests ? memory) ["--set ${component}.resources.requests.memory=${requests.memory}"];
 
@@ -115,7 +111,6 @@ in {
   ];
 
   inherit kubectl helm jq log;
-  inherit mkStateFileName stateDir;
   inherit mkResourceArgs;
   inherit waitForApi helmCleanup helmDeploy;
 
@@ -132,26 +127,22 @@ in {
     before ? [],
     requires ? [],
     extraServiceConfig ? {},
-  }: let
-    stateFile = "${stateDir}/${mkStateFileName release version extraArgs}.deployed";
-    argsArrayStr = lib.concatStringsSep " " extraArgs;
-  in {
+  }: {
     description = "Deploy ${name}";
     wantedBy = ["multi-user.target"];
     after = ["network-online.target" "k3s.service" "helm-repo-setup.service"] ++ after;
     before = before;
-    requires = ["network-online.target" "k3s.service"] ++ requires;
-    unitConfig.ConditionPathExists = "!${stateFile}";
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      Restart = "no";
-      TimeoutStartSec = "15m";
-    } // extraServiceConfig;
+    requires = ["network-online.target" "k3s.service" "helm-repo-setup.service"] ++ requires;
+    serviceConfig =
+      {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        Restart = "no";
+        TimeoutStartSec = "15m";
+      }
+      // extraServiceConfig;
     script = ''
       export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-      mkdir -p ${stateDir}
-
       ${log}
 
       ${waitForApi}
@@ -162,11 +153,9 @@ in {
 
       ${preDeploy}
 
-      helm_deploy "${release}" "${namespace}" "${chart}" "${version}" ${argsArrayStr}
+      helm_deploy "${release}" "${namespace}" "${chart}" "${version}" ${lib.concatStringsSep " " extraArgs}
 
       ${postDeploy}
-
-      touch "${stateFile}"
     '';
   };
 }

@@ -1,358 +1,142 @@
 # Architecture
 
-Detailed explanation of how the cluster works.
+## Scope
 
-## Overview
+This repository configures NixOS hosts and the Kubernetes components needed by
+each cluster. Application deployment is outside its scope. The removed
+`apps/` tree is legacy.
 
-```mermaid
-flowchart TB
-    subgraph WG[" WireGuard Full Mesh (10.100.0.0/24) "]
-        direction TB
-        M1[" master1 (init) "]
-        M2[" master2 (HAProxy) "]
-        M3[" master3 (HAProxy) "]
-        M1 --- M2
-        M2 --- M3
-        M1 --- M3
-    end
+Two independent clusters are currently produced:
 
-    KV[" kube‑vip VIP: 192.168.2.150 "]
-    M1 --- KV
-    M2 --- KV
-    M3 --- KV
+```text
+home
+├── master1: init, control plane, worker, storage, NVIDIA GPU
+├── master2: control plane, worker, storage
+└── master3: control plane, worker, storage
+
+teddysmp
+└── teddysmp: LXC init, control plane, worker
 ```
 
-## Components
+The clusters do not share K3s tokens, WireGuard meshes, service ranges, pod
+ranges, or kubeconfigs.
 
-| Component | Version      | Purpose                                            |
-| --------- | ------------ | -------------------------------------------------- |
-| k3s       | 1.34.3       | Lightweight Kubernetes with embedded etcd          |
-| WireGuard | 1.0.20250521 | Encrypted full‑mesh overlay network                |
-| Cilium    | 1.19.3       | CNI, NetworkPolicy, LoadBalancer IP pools          |
-| kube‑vip  | 0.9.8        | Layer 2 VIP announcement for LoadBalancer services |
-| Longhorn  | 1.11.1       | Distributed replicated block storage               |
-| HAProxy   | (NixOS)      | Control‑plane load balancer on non‑init masters    |
+## Evaluation model
 
----
+`flake.nix` calls `lib/mkCluster.nix` for each cluster definition:
 
-## WireGuard Mesh
+1. Evaluate the typed cluster options.
+2. Run cross-field validation from `lib/helpers.nix`.
+3. Generate one `nixosSystem` for each node.
+4. Generate cluster-scoped command-line packages.
+5. Reject duplicate output names when cluster outputs are merged.
 
-Every node maintains a direct WireGuard tunnel to every other node, forming a full mesh. This design eliminates single points of failure and gives each pod‑to‑pod flow the shortest path.
+The flake lock pins Nixpkgs, Disko, Agenix, and the Nix index. The NixOS state
+version is explicit in each cluster and does not follow Nixpkgs automatically.
 
-```mermaid
-flowchart TB
-    subgraph PHYSICAL[" Physical subnets "]
-        HOME[" Home LAN 192.168.2.0/24 "]
-        CLOUD[" Cloud VPC 10.10.0.0/24 "]
-    end
+## Node networking
 
-    subgraph WG[" WireGuard overlay 10.100.0.0/24 "]
-        M1[" master1 WG: 10.100.0.1 "]
-        M2[" master2 WG: 10.100.0.2 "]
-        M3[" master3 WG: 10.100.0.3 "]
-    end
+Each cluster uses a full-mesh WireGuard interface named `wg0`. A peer permits
+the peer's WireGuard address and pod CIDR. Explicit routes send remote pod
+traffic through that peer.
 
-    HOME --> M1
-    CLOUD --> M3
+Endpoint selection is location-aware:
 
-    M1 --- M2
-    M2 --- M3
-    M1 --- M3
+1. Nodes in the same location use the peer LAN address when available.
+2. Other locations use `wgEndpoint`, then `endpoint`, then the cluster domain.
+3. `endpointPort` represents a public forwarded WireGuard port.
+4. `wgPort` remains the node's local listen port.
+
+K3s advertises and binds to the node WireGuard address. Control-plane and pod
+traffic therefore use the encrypted mesh.
+
+The LAN firewall exposes only the configured SSH and WireGuard ports, plus TCP
+80 and 443 when the cluster load balancer is enabled. The Kubernetes API is
+not exposed on the LAN firewall.
+
+## K3s control plane
+
+The init server starts K3s with `--cluster-init`. Other servers join through
+the init server's WireGuard address. K3s uses embedded etcd for control-plane
+state.
+
+Non-init masters run HAProxy on `127.0.0.1:6443`. It balances local Kubernetes
+client traffic across all master WireGuard addresses. The init node uses its
+local K3s API directly.
+
+Automated multi-node deployment is sequential. Non-init nodes are deployed
+first and the init node is deployed last. Deployment stops when SSH identity
+verification or the post-deployment K3s health check fails.
+
+## Cilium
+
+K3s disables Flannel, kube-proxy, and the built-in network policy controller.
+Cilium provides Kubernetes IPAM, native routing over WireGuard pod routes,
+kube-proxy replacement, BPF masquerading, load-balancer data paths, and
+network policy.
+
+The operator runs with two replicas on an HA cluster and one replica on a
+single-node cluster. A periodic host service waits for Cilium's NAT chain
+before it adds the WireGuard masquerade compatibility rule.
+
+## Load balancers
+
+When enabled, kube-vip runs on control-plane nodes and announces service
+addresses on the LAN with ARP. Cilium load-balancer pools are generated per
+location and select services by this label:
+
+```text
+loadbalancer.<location>.enabled=true
 ```
 
-**Why full mesh?**
+Leader election uses a 15-second lease, 10-second renewal deadline, and
+2-second retry period. Actual failover time must be measured during a failure
+test; it is bounded by lease expiry.
 
-- No central relay – traffic follows the direct path between nodes.
-- Works across NAT with `persistentKeepalive = 25`.
-- Control‑plane and pod traffic never leaves the encrypted overlay.
+## Core component reconciliation
 
-**NAT Traversal:**
+The init master deploys Cilium, kube-vip, Longhorn, the optional registry, and
+the NVIDIA device plugin with Helm systemd services.
 
-```mermaid
-sequenceDiagram
-    participant A as Node A (behind NAT)
-    participant B as Node B (public IP)
-    A->>B: UDP to B:51820
-    B-->>A: Response (NAT hole punched)
-    Note over A,B: Bidirectional tunnel established
-```
+Each service waits for the API and Helm repository setup, then runs
+`helm upgrade --install` with atomic rollback, cleanup, workload waits, and
+timeouts. There are no persistent success marker files. A failed rollout does
+not become a permanent false success.
 
-**Endpoint resolution logic:**
+## Storage
 
-1. If a node has an explicit `endpoint`, that DNS name or IP is used.
-2. Otherwise, if `cluster.network.domain` is set, the endpoint becomes `<nodeName>.<domain>`.
-3. If neither is set, the node's `lanIP` is used (requires static IP).
-4. Nodes using DHCP **must** provide an `endpoint` or rely on a cluster‑wide domain; otherwise validation fails.
+The home cluster uses Longhorn with two replicas and dedicated `/data`
+filesystems. TeddySMP uses the K3s local-path provisioner.
 
----
+Disk selection and layout are explicit in node configuration. VM installation
+uses Disko. LXC storage is mounted by Proxmox and `storage.disks` must remain
+empty.
 
-## k3s High Availability
+## Registry
 
-### Control Plane
+The optional Docker Distribution registry is a ClusterIP service. Longhorn
+clusters use an RWX storage class; a single local-storage node uses RWO.
 
-```mermaid
-flowchart LR
-    CLIENT[" kubectl "] --> HAPROXY[" HAProxy 127.0.0.1:6443 "]
-    HAPROXY --> M1[" master1 (init) "]
-    HAPROXY --> M2[" master2 "]
-    HAPROXY --> M3[" master3 "]
+The registry remains plain HTTP inside the cluster. A Cilium policy restricts
+registry ingress to cluster nodes and pods in the registry namespace. Image
+deletion in the optional UI is disabled unless `registry.allowDelete = true`.
 
-    subgraph ETCD[" etcd Raft Cluster "]
-        M1 <--> M2
-        M2 <--> M3
-        M1 <--> M3
-    end
-```
+## Identity and secrets
 
-| Step | Action                                                                    |
-| ---- | ------------------------------------------------------------------------- |
-| 1    | Init node starts with `--cluster-init`.                                   |
-| 2    | Other masters join via `--server https://<init-wg-ip>:6443`.              |
-| 3    | etcd forms a Raft cluster (quorum required for writes).                   |
-| 4    | HAProxy on non‑init masters load‑balances API traffic across all masters. |
+Agenix decrypts node secrets with the managed Ed25519 SSH host identity.
+Encrypted data includes the K3s token, WireGuard keys, and recoverable managed
+SSH host keys.
 
-**HAProxy configuration** (relevant snippet):
+Normal management commands use a generated `known_hosts` file derived from
+the tracked host public keys. An explicit `--insecure-bootstrap` mode exists
+only for the first transition to the managed identity.
 
-```
-defaults
-  mode tcp
-  timeout connect 5s
-  timeout client 50s
-  timeout server 50s
-  default-server inter 10s downinter 5s rise 2 fall 2 slowstart 60s maxconn 250
+Direct root SSH is disabled after activation. The `admin` account has the
+tracked administrative key and passwordless sudo for declarative deployment.
 
-backend k3s-masters
-  balance roundrobin
-  server master1 master1:6443 check
-  server master2 master2:6443 check
-  server master3 master3:6443 check
-```
+## Validation boundaries
 
----
-
-## LoadBalancer IPs
-
-### kube‑vip Leader Election
-
-```mermaid
-sequenceDiagram
-    participant K1 as kube‑vip (master1)
-    participant K2 as kube‑vip (master2)
-    participant K3 as kube‑vip (master3)
-    participant API as Kubernetes API / Lease
-    participant LAN as LAN (ARP)
-
-    Note over K1,API: Initial election
-    K1->>API: Acquire lease
-    API-->>K1: Success
-    K1->>LAN: Gratuitous ARP: .150 → master1 MAC
-
-    Note over K2,API: Standby
-    K2->>API: Try acquire → held by master1
-    K3->>API: Try acquire → held by master1
-
-    Note over K1,LAN: Leader fails
-    K1--xAPI: (crashes)
-    K2->>API: Acquire expired lease
-    API-->>K2: Success → new leader
-    K2->>LAN: Gratuitous ARP: .150 → master2 MAC
-```
-
-Lease durations are set to 300 s with a 120‑s renewal deadline, providing tolerance against short API‑server stalls
-
-### Service with Real Client IP
-
-```mermaid
-flowchart LR
-    CLIENT[" Client 1.2.3.4 "] -->|" TCP :443 "| VIP[" VIP 192.168.2.150 "]
-    VIP --> IPTABLES[" iptables DNAT "]
-    IPTABLES -->|" source preserved "| POD[" APISix Pod "]
-    POD -->|" X‑Real‑IP: 1.2.3.4 "| BACKEND[" Backend Pod "]
-```
-
-**Required:** `externalTrafficPolicy: Local` on the Service, and Cilium `loadBalancer.mode=hybrid` with DSR over Geneve.
-
-### Cilium IP Pool Allocation
-
-```mermaid
-flowchart TB
-    POOL[" CiliumLoadBalancerIPPool lb‑pool‑home 192.168.2.150‑160 "]
-    SVC[" Service type: LoadBalancer selector: loadbalancer.home.enabled=true "]
-    ALLOC[" IP assigned: 192.168.2.150 "]
-    RESULT[" status.loadBalancer.ingress = 192.168.2.150 "]
-
-    SVC -->| matches | POOL
-    POOL -->| allocates | ALLOC
-    ALLOC --> RESULT
-```
-
----
-
-## Storage (Longhorn)
-
-### Volume with 2 Replicas
-
-```mermaid
-flowchart TB
-    subgraph POD[" Pod on master1 "]
-        APP[" Application "]
-        PVC[" PVC: 100 Gi "]
-    end
-
-    subgraph ENGINE[" Longhorn Engine (master1) "]
-        ENG[" Engine "]
-        R1[" Replica 1 "]
-    end
-
-    subgraph M2[" master2 "]
-        R2[" Replica 2 "]
-    end
-
-    APP --> PVC
-    PVC --> ENG
-    ENG <-->| sync | R1
-    ENG <-->| sync | R2
-```
-
-**Recovery scenarios:**
-
-| Failure           | Recovery                                                  |
-| ----------------- | --------------------------------------------------------- |
-| Replica node dies | Engine rebuilds replica on another healthy node.          |
-| Engine node dies  | Engine restarts elsewhere, reattaches surviving replicas. |
-| Disk corruption   | Volume is rebuilt from a healthy replica.                 |
-
-Tunings applied for homelab clusters: `replicaAutoBalance=least-effort`, `storageOverProvisioningPercentage=100`, `defaultDataLocality=best-effort`.
-
----
-
-## Network Policy
-
-```mermaid
-flowchart TB
-    subgraph NS1[" namespace: apisix "]
-        APISIX[" APISix Pod "]
-    end
-    subgraph NS2[" namespace: copyparty "]
-        COPY[" CopyParty Pod "]
-    end
-    subgraph NS3[" namespace: default "]
-        RANDOM[" Random Pod "]
-    end
-
-    APISIX -->| allowed | COPY
-    RANDOM -.->| BLOCKED | COPY
-```
-
-Enforced by Cilium `NetworkPolicy` objects.
-
----
-
-## Complete Traffic Flow: WAN → Pod
-
-```mermaid
-flowchart TB
-    WAN[" Internet Client 1.2.3.4 "]
-    DNS[" DNS: files.example.com → 192.168.2.150 "]
-    ROUTER[" Home Router "]
-
-    subgraph NODE[" master1 (kube‑vip leader) "]
-        VIP[" VIP 192.168.2.150 "]
-        IPTABLES[" iptables KUBE‑EXTERNAL "]
-        CILIUM[" Cilium eBPF "]
-        APISIX[" APISix Pod 10.42.0.5:9080 "]
-    end
-
-    COPY[" CopyParty Pod 10.42.1.3:3923 "]
-
-    WAN -->|" HTTPS :443 "| DNS
-    DNS --> ROUTER
-    ROUTER -->|" ARP "| VIP
-    VIP --> IPTABLES
-    IPTABLES -->|" DNAT → NodePort "| CILIUM
-    CILIUM -->|" proxy "| APISIX
-    APISIX -->|" route /files/* "| COPY
-```
-
-### Step‑by‑Step Breakdown
-
-```mermaid
-sequenceDiagram
-    participant C as Client (1.2.3.4)
-    participant D as DNS
-    participant R as Router
-    participant KV as kube‑vip
-    participant IPT as iptables
-    participant CIL as Cilium
-    participant API as APISix
-    participant APP as CopyParty
-
-    Note over C,D: Step 1: DNS
-    C->>D: Query files.example.com
-    D-->>C: 192.168.2.150
-
-    Note over C,R: Step 2: Routing
-    C->>R: TCP :443 → 192.168.2.150
-    R->>R: ARP who‑has .150?
-
-    Note over R,KV: Step 3: ARP
-    KV->>R: .150 is at master1 MAC
-    R->>KV: Packet → master1
-
-    Note over KV,IPT: Step 4: iptables
-    KV->>IPT: dst .150:443
-    IPT->>IPT: DNAT → NodePort
-
-    Note over IPT,CIL: Step 5: Cilium DNAT
-    IPT->>CIL: src 1.2.3.4 preserved
-    CIL->>CIL: Service → Pod translation
-
-    Note over CIL,API: Step 6: Gateway
-    CIL->>API: 10.42.0.5:9080
-    API->>API: Route lookup
-
-    Note over API,APP: Step 7: Backend
-    API->>APP: X‑Real‑IP: 1.2.3.4
-    APP->>APP: Logs show real IP
-```
-
-### Packet Transformations
-
-```mermaid
-flowchart LR
-    subgraph P1[" At Client "]
-        PKT1[" src: 1.2.3.4:54321<br/>dst: 192.168.2.150:443 "]
-    end
-    subgraph P2[" After iptables "]
-        PKT2[" src: 1.2.3.4:54321<br/>dst: 192.168.2.105:31234 (NodePort) "]
-    end
-    subgraph P3[" After Cilium "]
-        PKT3[" src: 1.2.3.4:54321<br/>dst: 10.42.0.5:9080 (Pod IP) "]
-    end
-
-    P1 --> P2 --> P3
-```
-
-### What Could Go Wrong?
-
-| Issue                            | Symptom                      | Cause                                            |
-| -------------------------------- | ---------------------------- | ------------------------------------------------ |
-| No anti‑affinity on APISix       | Intermittent 503 errors      | VIP traffic hits a node without an APISix pod.   |
-| `externalTrafficPolicy: Cluster` | Real IP lost (shows node IP) | SNAT when forwarding to another node.            |
-| kube‑vip leader dies             | ~1–2 s downtime              | Normal lease expiration; new leader takes over.  |
-| Cilium not ready                 | Connection refused           | Pod exists but Cilium hasn't programmed BPF yet. |
-
----
-
-## Deployment Model
-
-The cluster is deployed using the `deploy` script (see README). Key points:
-
-- **Init node** – installed via `nixos-anywhere` (`deploy init master1`).
-- **Other nodes** – updated in place with `nixos-rebuild` (`deploy rebuild <node>`).
-- All commands support an optional `--jump` bastion for nodes behind a firewall.
-- Cluster validation (`helpers.validateCluster`) catches misconfigurations (duplicate IPs, missing endpoints, etc.) at evaluation time.
-
----
-
-<p align="right"><sub>Generated by Deepseek-V4</sub></p>
+Evaluation rejects invalid init roles, addresses, locations, network ranges,
+load-balancer pools, storage combinations, LXC disks, even-sized HA control
+planes, and duplicate node names across clusters. Runtime preflight services
+check LXC cgroups, bpffs, device access, and storage mounts.

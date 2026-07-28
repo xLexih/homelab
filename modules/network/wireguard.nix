@@ -25,17 +25,16 @@
     persistentKeepalive = clusterConfig.network.wgKeepalive;
   };
 
+  ip = "${pkgs.iproute2}/bin/ip";
+
   podCIDRRoutes = lib.concatStringsSep "\n" (lib.mapAttrsToList (
-      name: cfg: "ip route replace ${helpers.nodePodCIDR name cfg} dev wg0"
+      name: cfg: "${ip} route replace ${helpers.nodePodCIDR name cfg} dev wg0"
     )
     otherNodes);
 
-  masqRule = "iptables -t nat -C CILIUM_POST_nat -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE 2>/dev/null || iptables -t nat -I CILIUM_POST_nat 1 -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE";
+  inherit (helpers) nodeWgPort;
 
-  wgPort =
-    if nodeConfig.network.wgPort != null
-    then nodeConfig.network.wgPort
-    else clusterConfig.network.wgPort;
+  wgPort = nodeWgPort nodeName;
 in {
   age.secrets."wg-${nodeName}-key" = {
     file = "${self}/secrets/hosts/${nodeName}/wireguard.age";
@@ -49,7 +48,7 @@ in {
     table = "main";
     privateKeyFile = config.age.secrets."wg-${nodeName}-key".path;
     peers = lib.mapAttrsToList mkPeer otherNodes;
-    postSetup = "${podCIDRRoutes}\n${masqRule}";
+    postSetup = "${podCIDRRoutes}";
   };
 
   systemd.services.k3s = {
@@ -63,14 +62,22 @@ in {
     add = "-t nat -I CILIUM_POST_nat 1 -s ${nodeConfig.podCIDR} -o wg0 -j MASQUERADE";
   in {
     description = "Ensure iptables MASQUERADE rule for pod traffic over wg0";
-    after = ["network.target" "cilium.service"];
-    wants = ["cilium.service"];
+    after = ["network.target" "k3s.service"];
+    wants = ["k3s.service"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
     };
     script = ''
-      ${iptables} ${rule} || ${iptables} ${add}
+      for attempt in $(seq 1 60); do
+        if ${iptables} -t nat -S CILIUM_POST_nat >/dev/null 2>&1; then
+          ${iptables} ${rule} || ${iptables} ${add}
+          exit 0
+        fi
+        sleep 5
+      done
+      echo "CILIUM_POST_nat was not created within 5 minutes" >&2
+      exit 1
     '';
   };
 

@@ -11,6 +11,7 @@
 {...}: {
   cluster = {
     name = "multi";
+    stateVersion = "26.05";
 
     # Distributed HA block storage. Needs 3+ nodes with "storage"
     # role for data safety with 2 replicas. Longhorn disables k3s
@@ -62,7 +63,7 @@
           wgIP = "10.100.0.1";
           lanIP = "192.168.2.101";
           gateway = "192.168.2.1";
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.0.0/24";
 
@@ -107,7 +108,7 @@
           wgIP = "10.100.0.2";
           lanIP = "192.168.2.102";
           gateway = "192.168.2.1";
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.1.0/24";
         storage = {
@@ -135,7 +136,7 @@
           wgIP = "10.100.0.3";
           lanIP = "192.168.2.103";
           gateway = "192.168.2.1";
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.2.0/24";
         storage = {

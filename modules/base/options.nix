@@ -10,6 +10,11 @@ in {
       description = "Cluster name";
     };
 
+    stateVersion = lib.mkOption {
+      type = lib.types.str;
+      description = "NixOS state version from the cluster's first installation; never change this during a normal upgrade";
+    };
+
     storageBackend = lib.mkOption {
       type = lib.types.enum ["local" "longhorn"];
       default = "local";
@@ -85,6 +90,14 @@ in {
         };
       };
       description = "Network configuration";
+    };
+
+    cni = {
+      customConf = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Let another entity (e.g. Multus) manage /etc/cni/net.d as the primary CNI entrypoint";
+      };
     };
 
     loadBalancer = lib.mkOption {
@@ -339,7 +352,7 @@ in {
             description = "Storage size for docker registry";
           };
           replicas = lib.mkOption {
-            type = lib.types.int;
+            type = lib.types.ints.positive;
             default = 1;
             description = "Number of registry replicas";
           };
@@ -356,6 +369,11 @@ in {
               If false, HTTPS is used (requires TLS certificates).
             '';
           };
+          allowDelete = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Allow image deletion through the optional registry UI";
+          };
         };
       };
       default = {};
@@ -366,7 +384,7 @@ in {
       type = lib.types.submodule {
         options = {
           replicas = lib.mkOption {
-            type = lib.types.int;
+            type = lib.types.ints.positive;
             default = 2;
             description = "Number of CoreDNS replicas (recommended: 2 for HA)";
           };

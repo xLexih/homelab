@@ -27,14 +27,62 @@ in
           "--set csi.snapshotterReplicaCount=2"
           "--set longhornUI.replicas=1"
         ]
-        ++ mkResourceArgs "longhornManager" { cpu = "500m"; memory = "1Gi"; } { cpu = "100m"; memory = "128Mi"; }
-        ++ mkResourceArgs "longhornUI" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "csi.attacher" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "csi.provisioner" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "csi.resizer" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "csi.snapshotter" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "csi.driver" { cpu = "300m"; memory = "512Mi"; } { cpu = "50m"; memory = "64Mi"; }
-        ++ mkResourceArgs "longhornDriverDeployer" { cpu = "200m"; memory = "256Mi"; } { cpu = "50m"; memory = "64Mi"; }
+        ++ mkResourceArgs "longhornManager" {
+          cpu = "500m";
+          memory = "1Gi";
+        } {
+          cpu = "100m";
+          memory = "128Mi";
+        }
+        ++ mkResourceArgs "longhornUI" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "csi.attacher" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "csi.provisioner" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "csi.resizer" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "csi.snapshotter" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "csi.driver" {
+          cpu = "300m";
+          memory = "512Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
+        ++ mkResourceArgs "longhornDriverDeployer" {
+          cpu = "200m";
+          memory = "256Mi";
+        } {
+          cpu = "50m";
+          memory = "64Mi";
+        }
         ++ [
           "--set defaultSettings.guaranteedInstanceManagerCPU=500m"
           "--set defaultSettings.guaranteedInstanceManagerMemory=1536Mi"

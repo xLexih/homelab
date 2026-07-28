@@ -1,4 +1,4 @@
-{self, ...}: {
+{...}: {
   services.openssh = {
     enable = true;
     hostKeys = [
@@ -9,12 +9,9 @@
     ];
     settings = {
       PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
+      PermitRootLogin = "no";
     };
   };
 
   age.identityPaths = ["/etc/ssh/ssh_host_ed25519_key"];
-  users.users.root.openssh.authorizedKeys.keyFiles = [
-    "${self}/secrets/admin.pub"
-  ];
 }

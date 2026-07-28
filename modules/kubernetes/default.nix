@@ -34,6 +34,10 @@
     else "https://${clusterConfig.nodes.${initNode}.network.wgIP}:${toString clusterConfig.network.apiServerPort}";
 
   gpuEnabled = nodeConfig.gpu.enable;
+  registryProto =
+    if registryCfg.http
+    then "http"
+    else "https";
   nvidiaRuntimeBinary = "${pkgs.nvidia-container-toolkit.tools}/bin/nvidia-container-runtime.cdi";
 
   containerdConfig =
@@ -107,11 +111,7 @@ in {
       mirrors:
         "registry-docker-registry.registry.svc.cluster.local:5000":
           endpoint:
-            - "${
-        if registryCfg.http
-        then "http"
-        else "https"
-      }://registry-docker-registry.registry.svc.cluster.local:5000"
+            - "${registryProto}://registry-docker-registry.registry.svc.cluster.local:5000"
     '';
   };
 
@@ -144,7 +144,7 @@ in {
   };
 
   systemd.services.iscsid = lib.mkIf (clusterConfig.storageBackend == "longhorn") {
-    wantedBy = ["multi-user.target"];
+    after = ["iscsid.socket"];
     before = ["k3s.service"];
   };
 
@@ -171,9 +171,11 @@ in {
     requiredBy = ["k3s.service"];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.util-linux}/bin/mountpoint --quiet /data";
       RemainAfterExit = true;
     };
+    script = ''
+      ${pkgs.util-linux}/bin/mountpoint --quiet /data
+    '';
   };
 
   systemd.services.lxc-kubernetes-preflight = lib.mkIf isLxc {

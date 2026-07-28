@@ -18,6 +18,7 @@
 {...}: {
   cluster = {
     name = "multi-location";
+    stateVersion = "26.05";
 
     storageBackend = "longhorn";
 
@@ -67,13 +68,23 @@
           # If multiple masters share one domain, use distinct ports.
           wgEndpoint = "home.example.com";
           endpointPort = 51821;
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.0.0/24";
         storage = {
           disks = [
-            {device = "/dev/sdb"; roles = ["system" "etcd"]; sizes = {system = "40G"; etcd = "100%FREE";};}
-            {device = "/dev/sda"; roles = ["data"];}
+            {
+              device = "/dev/sdb";
+              roles = ["system" "etcd"];
+              sizes = {
+                system = "40G";
+                etcd = "100%FREE";
+              };
+            }
+            {
+              device = "/dev/sda";
+              roles = ["data"];
+            }
           ];
         };
       };
@@ -87,13 +98,23 @@
           gateway = "192.168.2.1";
           wgEndpoint = "home.example.com";
           endpointPort = 51822;
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.1.0/24";
         storage = {
           disks = [
-            {device = "/dev/sdb"; roles = ["system" "etcd"]; sizes = {system = "40G"; etcd = "100%FREE";};}
-            {device = "/dev/sda"; roles = ["data"];}
+            {
+              device = "/dev/sdb";
+              roles = ["system" "etcd"];
+              sizes = {
+                system = "40G";
+                etcd = "100%FREE";
+              };
+            }
+            {
+              device = "/dev/sda";
+              roles = ["data"];
+            }
           ];
         };
       };
@@ -107,13 +128,23 @@
           gateway = "192.168.2.1";
           wgEndpoint = "home.example.com";
           endpointPort = 51823;
-          sshUser = "nixos";
+          sshUser = "admin";
         };
         podCIDR = "10.42.2.0/24";
         storage = {
           disks = [
-            {device = "/dev/sdb"; roles = ["system" "etcd"]; sizes = {system = "40G"; etcd = "100%FREE";};}
-            {device = "/dev/sda"; roles = ["data"];}
+            {
+              device = "/dev/sdb";
+              roles = ["system" "etcd"];
+              sizes = {
+                system = "40G";
+                etcd = "100%FREE";
+              };
+            }
+            {
+              device = "/dev/sda";
+              roles = ["data"];
+            }
           ];
         };
       };
@@ -133,7 +164,7 @@
           endpoint = "cloud-worker.example.com";
           # Default WG port — only 1 node behind this IP
           endpointPort = 51820;
-          sshUser = "root";
+          sshUser = "admin";
         };
 
         podCIDR = "10.42.10.0/24";

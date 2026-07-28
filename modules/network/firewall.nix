@@ -1,19 +1,21 @@
 {
   clusterConfig,
+  helpers,
+  lib,
+  nodeName,
   nodeConfig,
   ...
 }: let
-  wgPort =
-    if nodeConfig.network.wgPort != null
-    then nodeConfig.network.wgPort
-    else clusterConfig.network.wgPort;
+  inherit (helpers) nodeWgPort;
+
+  wgPort = nodeWgPort nodeName;
 
   sshPort =
     if nodeConfig.network.sshPort != null
     then nodeConfig.network.sshPort
     else 22;
 
-  apiPort = clusterConfig.network.apiServerPort;
+  exposeIngress = clusterConfig.loadBalancer.enable;
 in {
   networking.firewall = {
     enable = true;
@@ -26,19 +28,8 @@ in {
     ];
 
     interfaces.${clusterConfig.network.lanInterface} = {
-      allowedTCPPorts = [
-        sshPort
-        80 # HTTP ingress (APISix)
-        443 # HTTPS ingress (APISix)
-        2222 # alternative SSH
-        apiPort
-      ];
-      allowedUDPPorts = [
-        wgPort
-        443
-        53820 # Octelium client WireGuard gateway
-        8443 # Octelium experimental QUIC gateway
-      ];
+      allowedTCPPorts = [sshPort] ++ lib.optionals exposeIngress [80 443];
+      allowedUDPPorts = [wgPort];
     };
 
     checkReversePath = "loose"; # allow asymmetric routing for kube-vip VIP

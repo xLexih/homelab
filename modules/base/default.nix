@@ -1,6 +1,7 @@
 {
   pkgs,
   lib,
+  clusterConfig,
   nodeName,
   nodeConfig,
   ...
@@ -11,6 +12,8 @@ in {
 
   imports = [
     ./options.nix
+    ./console.nix
+    ./shell.nix
     ./users.nix
     ./ssh.nix
     ./performance.nix
@@ -54,7 +57,7 @@ in {
   services.lvm.enable = !isLxc;
   services.chrony.enable = !isLxc;
 
-  system.stateVersion = lib.trivial.release;
+  system.stateVersion = clusterConfig.stateVersion;
   time.timeZone = "UTC";
   networking.hostName = nodeName;
 
@@ -92,7 +95,10 @@ in {
     "L+ /usr/local/sbin/umount     - - - - ${pkgs.util-linux}/bin/umount"
   ];
 
-  nix.settings.experimental-features = ["nix-command" "flakes"];
+  nix.settings = {
+    experimental-features = ["nix-command" "flakes"];
+    trusted-users = ["root" "@wheel"];
+  };
   nix.gc = {
     automatic = true;
     dates = "weekly";

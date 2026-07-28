@@ -5,7 +5,7 @@
   ...
 }: let
   iface = clusterConfig.network.lanInterface;
-  useDHCP = nodeConfig.network.useDHCP or false;
+  useDHCP = nodeConfig.network.useDHCP;
 in {
   imports = [
     ./wireguard.nix

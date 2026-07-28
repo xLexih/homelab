@@ -15,6 +15,7 @@
 {...}: {
   cluster = {
     name = "lxc-single";
+    stateVersion = "26.05";
 
     # local-path — the simplest option for a single node.
     # Docker registry below targets this StorageClass.
@@ -72,7 +73,7 @@
           endpoint = "node1.example.com";
           endpointPort = 51820;
           sshPort = 22;
-          sshUser = "root";
+          sshUser = "admin";
         };
 
         podCIDR = "10.45.0.0/24";

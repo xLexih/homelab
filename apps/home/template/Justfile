@@ -1,0 +1,66 @@
+set dotenv-load := true
+set positional-args := false
+
+APP_NAME := env_var_or_default("APP_NAME", "myapp")
+APP_NAMESPACE := env_var_or_default("APP_NAMESPACE", APP_NAME)
+APP_IMAGE := env_var_or_default("APP_IMAGE", "nginx:alpine")
+APP_REPLICAS := env_var_or_default("APP_REPLICAS", "1")
+APP_ENABLE_OCTELIUM := env_var_or_default("APP_ENABLE_OCTELIUM", "true")
+APP_DOMAIN := env_var_or_default("APP_DOMAIN", "")
+APP_STORAGE_SIZE := env_var_or_default("APP_STORAGE_SIZE", "")
+APP_STORAGE_CLASS := env_var_or_default("APP_STORAGE_CLASS", "")
+
+default:
+  @just --list
+
+dev:
+  docker compose -f docker/docker-compose.yml up --build -d --project-name '{{APP_NAME}}'
+  docker compose -f docker/docker-compose.yml logs -f --project-name '{{APP_NAME}}'
+
+dev-down:
+  docker compose -f docker/docker-compose.yml down --project-name '{{APP_NAME}}'
+
+docker-build:
+  docker build -t '{{APP_IMAGE}}' docker
+
+docker-push:
+  docker push '{{APP_IMAGE}}'
+
+full-deploy: docker-build docker-push deploy
+
+deploy: render apply wait status
+
+render:
+  rm -rf /tmp/k8s-{{APP_NAME}}
+  mkdir -p /tmp/k8s-{{APP_NAME}}
+  for f in k8s/*.yaml; do
+    [ -f "$$f" ] || continue
+    envsubst < "$$f" > "/tmp/k8s-{{APP_NAME}}/$$(basename $$f)"
+  done
+  TDIR=/tmp/k8s-{{APP_NAME}}
+  {
+    echo 'apiVersion: kustomize.config.k8s.io/v1beta1'
+    echo 'kind: Kustomization'
+    echo 'resources:'
+    echo '  - namespace.yaml'
+    echo '  - deployment.yaml'
+    echo '  - service.yaml'
+    if [ -n "{{APP_STORAGE_SIZE}}" ]; then echo '  - pvc.yaml'; fi
+    if [ "{{APP_ENABLE_OCTELIUM}}" = "true" ]; then echo '  - cilium-network-policy.yaml'; fi
+    if [ "{{APP_ENABLE_OCTELIUM}}" = "true" ] && [ -n "{{APP_DOMAIN}}" ]; then echo '  - apisix-route.yaml'; fi
+  } > "$$TDIR/kustomization.yaml"
+
+apply:
+  kubectl apply -k /tmp/k8s-{{APP_NAME}}
+
+wait:
+  kubectl rollout status deployment/{{APP_NAME}} -n '{{APP_NAMESPACE}}' --timeout=180s
+
+status:
+  kubectl -n '{{APP_NAMESPACE}}' get pods,svc
+
+logs:
+  kubectl -n '{{APP_NAMESPACE}}' logs -l app.kubernetes.io/name='{{APP_NAME}}' --tail=100 -f
+
+remove:
+  kubectl delete ns '{{APP_NAMESPACE}}' --ignore-not-found

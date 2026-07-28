@@ -1,0 +1,18 @@
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_NAME}
+spec:
+  http:
+    - name: root
+      match:
+        hosts:
+          - ${APP_DOMAIN}
+        paths:
+          - /*
+      backends:
+        - serviceName: ${APP_NAME}
+          servicePort: 80

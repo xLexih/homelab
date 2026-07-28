@@ -1,5 +1,8 @@
 # Incident: Monitoring Speedtest Dashboard Stale After Prometheus Storage Exhaustion
 
+> Archived legacy application incident. Referenced `apps/` files are no longer
+> part of the active cluster project.
+
 **Date:** 2026-07-01
 **Duration:** ~35m
 **Severity:** minor
