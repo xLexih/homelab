@@ -51,8 +51,9 @@ K3s advertises and binds to the node WireGuard address. Control-plane and pod
 traffic therefore use the encrypted mesh.
 
 The LAN firewall exposes only the configured SSH and WireGuard ports, plus TCP
-80 and 443 when the cluster load balancer is enabled. The Kubernetes API is
-not exposed on the LAN firewall.
+80 and 443 when the cluster load balancer is enabled. A cluster can also list
+specific `network.nodePorts`; the LAN firewall exposes only those ports. The
+Kubernetes API is not exposed on the LAN firewall.
 
 ## K3s control plane
 

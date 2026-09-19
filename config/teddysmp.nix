@@ -19,6 +19,7 @@
       podCIDR = "10.45.0.0/16";
       wgCIDR = "10.101.0.0/24";
       wgPort = 51820;
+      nodePorts = [32022];
       domain = null;
       lanInterface = "eth0";
     };

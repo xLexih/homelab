@@ -28,7 +28,7 @@ in {
     ];
 
     interfaces.${clusterConfig.network.lanInterface} = {
-      allowedTCPPorts = [sshPort] ++ lib.optionals exposeIngress [80 443];
+      allowedTCPPorts = [sshPort] ++ lib.optionals exposeIngress [80 443] ++ clusterConfig.network.nodePorts;
       allowedUDPPorts = [wgPort];
     };
 

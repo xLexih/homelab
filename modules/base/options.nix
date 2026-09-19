@@ -87,6 +87,11 @@ in {
             default = 6443;
             description = "Kubernetes API server port";
           };
+          nodePorts = lib.mkOption {
+            type = lib.types.listOf lib.types.port;
+            default = [];
+            description = "Kubernetes NodePorts exposed on the LAN interface";
+          };
         };
       };
       description = "Network configuration";

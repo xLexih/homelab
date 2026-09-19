@@ -91,7 +91,7 @@ kubectl -n "${NAMESPACE}" annotate svc octelium-ingress-dataplane \
   --overwrite
 kubectl -n "${NAMESPACE}" patch svc octelium-ingress-dataplane \
   --type merge \
-  -p "{\"spec\":{\"loadBalancerIP\":\"${GATEWAY_LOAD_BALANCER_IP}\"}}"
+  -p "{\"spec\":{\"loadBalancerIP\":\"${GATEWAY_LOAD_BALANCER_IP}\",\"externalTrafficPolicy\":\"Local\"}}"
 kubectl apply -f "${GATEWAY_UDP}"
 
 echo "==> Importing the shared public certificate into Octelium..."
