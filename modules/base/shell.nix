@@ -74,14 +74,14 @@
           branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||
             git rev-parse --short HEAD 2>/dev/null) || branch=""
           [[ -z "$branch" ]] ||
-            git_context=" $_CL_DIM⟦$_CL_PINK$branch$_CL_DIM⟧"
+            git_context=" $_CL_DIMon $_CL_PINK$branch$_CL_RESET"
         fi
         case "$TERM" in
           xterm*|screen*|tmux*|kitty*|foot*|wezterm*)
             title='\[\e]0;\u@\h: \w\a\]'
             ;;
         esac
-        PS1="$title$_CL_PURPLEλ $_CL_LAVENDER\u$_CL_DIM@$_CL_PURPLE\h $_CL_DIM∈ $_CL_BLUE\w$git_context $marker$_CL_RESET "
+        PS1="$title$marker $_CL_LAVENDER\u$_CL_DIM@$_CL_PURPLE\h$_CL_DIM:$_CL_BLUE\w$git_context $_CL_PURPLEλ$_CL_RESET "
       }
       PROMPT_COMMAND=__cluster_prompt
     '';
