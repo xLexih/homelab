@@ -112,6 +112,27 @@ in {
       type = types.str;
       description = "NixOS release of the first installation; never change it afterwards.";
     };
+    k3sVersion = mkOption {
+      type = types.strMatching "1\\.[0-9]+";
+      example = "1.35";
+      description = ''
+        Kubernetes minor version, i.e. the nixpkgs package k3s_1_35. Patch
+        releases follow flake.lock. Upgrade one minor version at a time and
+        let `switch all` do the servers before the agents.
+      '';
+    };
+    reserved = {
+      server = mkOption {
+        type = types.str;
+        default = "cpu=500m,memory=1Gi";
+        description = "Kept away from pods on servers (kubelet system-reserved) for the OS, k3s, etcd and the API server.";
+      };
+      agent = mkOption {
+        type = types.str;
+        default = "cpu=250m,memory=512Mi";
+        description = "Kept away from pods on agents (kubelet system-reserved) for the OS and k3s.";
+      };
+    };
     init = mkOption {
       type = types.nullOr types.str;
       default =

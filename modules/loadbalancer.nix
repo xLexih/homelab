@@ -65,8 +65,19 @@ in
         targetNamespace = "metallb-system";
         createNamespace = true;
         extraFieldDefinitions.spec.failurePolicy = "abort";
-        # Layer 2 only: skip the bundled FRR (BGP) daemons.
-        values.frrk8s.enabled = false;
+        values = {
+          # Layer 2 only: skip the bundled FRR (BGP) daemons.
+          frrk8s.enabled = false;
+          # The only controller assigns addresses to new services: leave a
+          # failed node after 30 s instead of 300 s. Existing addresses stay
+          # announced by the speakers meanwhile.
+          controller.tolerations = map (key: {
+            inherit key;
+            operator = "Exists";
+            effect = "NoExecute";
+            tolerationSeconds = 30;
+          }) ["node.kubernetes.io/not-ready" "node.kubernetes.io/unreachable"];
+        };
       };
       # Separate file: these need the chart's CRDs and webhook, and k3s retries
       # a manifest until it applies.

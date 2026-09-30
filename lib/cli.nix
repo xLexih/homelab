@@ -15,6 +15,8 @@
   wireguard-tools,
   cluster,
   secrets,
+  # where `secrets` lives in the repository, for the commands that write it
+  secretsDir,
 }: let
   inherit (cluster) name;
   nodes = lib.attrValues cluster.nodes;
@@ -79,9 +81,13 @@ in
         exit 1
       }
 
-      root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this inside the cluster repository"
-      dir=$root/clusters/$cluster/secrets
       identity=''${AGE_IDENTITY:-$HOME/.ssh/k3s-admin}
+
+      # Only install, switch, rollback and secrets need the repository.
+      repo() {
+        root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this inside the cluster repository"
+        dir=$root/${secretsDir}
+      }
       umask 077
       tmp=$(mktemp -d)
       trap 'rm -rf "$tmp"' EXIT
@@ -129,19 +135,36 @@ in
           --target-host "admin@''${HOST[$node]}" --sudo "$@"
       }
 
+      # Restart a node and wait until it is back; used for LXC containers,
+      # whose new generation only becomes active on a fresh boot.
+      restart() {
+        local node=$1 before now i
+        # start time of PID 1: a container restart does not change the host's boot id
+        before=$(remote "$node" cut -d' ' -f22 /proc/1/stat)
+        echo "$node: restarting"
+        remote "$node" sudo systemctl reboot || true
+        for ((i = 0; i < 60; i++)); do
+          sleep 5
+          now=$(remote "$node" cut -d' ' -f22 /proc/1/stat 2>/dev/null) || continue
+          [[ $now == "$before" ]] || return 0
+        done
+        die "$node: not back after 5 minutes"
+      }
+
       activate() {
         local node=$1 probe=$1
         shift
         if [[ ''${PLATFORM[$node]} == lxc ]]; then
           rebuild boot "$node" "$@"
-          echo "$node: generation staged; restart the container from Proxmox to activate it"
-          return
+          restart "$node"
+        else
+          rebuild switch "$node" "$@"
         fi
-        rebuild switch "$node" "$@"
         if [[ ''${ROLE[$node]} != server ]]; then
           probe=$(live_server) || die "no server with k3s running"
         fi
-        remote "$node" systemctl is-active --quiet k3s || die "$node: k3s is not running"
+        remote "$node" "timeout 180 sh -c 'until systemctl is-active --quiet k3s; do sleep 2; done'" ||
+          die "$node: k3s is not running; see: $cluster ssh $node journalctl -b -u k3s-preflight -u k3s"
         kube "$probe" wait --for=condition=Ready "node/$node" --timeout=5m >/dev/null ||
           die "$node: not Ready after 5 minutes; stopping here"
         echo "$node: Ready"
@@ -151,6 +174,7 @@ in
         local node=''${1:-} target=''${2:-} answer server
         check_node "$node"
         [[ -n $target ]] || usage
+        repo
         if [[ $node == "$init" ]] && server=$(live_server "$node"); then
           die "$server already runs this cluster, and $node as \`init\` would start a new one. Set \`init\` to $server in cluster.nix first."
         fi
@@ -165,7 +189,8 @@ in
           local insecure=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
           tar -C "$tmp" -c etc/ssh | ssh "''${insecure[@]}" "$target" sudo tar -C / --no-same-owner -x
           NIX_SSHOPTS="''${insecure[*]}" nixos-rebuild boot --flake "$root#$cluster-$node" --target-host "$target" --sudo
-          echo "$node: installed; restart the container from Proxmox to activate it"
+          ssh "''${insecure[@]}" "$target" sudo systemctl reboot || true
+          echo "$node: installed and restarting; check it with: $cluster ssh $node"
         fi
       }
 
@@ -188,7 +213,8 @@ in
             done
           fi
           kube "$server" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout=15m
-          remote "$node" sudo systemctl disable --now k3s
+          # /etc is read-only on NixOS: stop k3s until the next boot
+          remote "$node" sudo systemctl mask --runtime --now k3s
         else
           echo "$node: unreachable; removing it without draining"
         fi
@@ -198,6 +224,7 @@ in
             echo "$node: remove it in the Longhorn UI once Longhorn shows it as down"
         fi
         echo "$node: removed from Kubernetes. Now delete it from clusters/$cluster/cluster.nix, then run 'secrets sync' and 'switch all'."
+        echo "$node: k3s stays stopped until it reboots; power it off or reinstall it before then, or it rejoins while the other nodes still list it."
         if [[ $node == "$init" ]]; then
           echo "$node is \`init\`: set init to another server, e.g. $server"
         fi
@@ -317,6 +344,7 @@ in
         install) cmd_install "$@" ;;
         remove) cmd_remove "$@" ;;
         switch | rollback)
+          repo
           if [[ $command == switch && ''${1:-} == all ]]; then set -- "''${order[@]}"; fi
           (($#)) || usage
           for node in "$@"; do check_node "$node"; done
@@ -333,6 +361,7 @@ in
         kubeconfig) cmd_kubeconfig "$@" ;;
         image) cmd_image "$@" ;;
         secrets)
+          repo
           [[ -f $dir/admin.pub ]] || die "put your SSH public key(s) in $dir/admin.pub first"
           case ''${1:-} in
             sync) cmd_sync ;;

@@ -56,25 +56,42 @@
       ++ map nodeErrors nodes
     );
 
+  # Modules of one node; shared by the real systems and the VM test.
+  nodeModules = cluster: secrets: node: [
+    ../modules
+    (
+      if node.platform == "lxc"
+      then ../modules/lxc.nix
+      else ../modules/vm.nix
+    )
+    {_module.args = {inherit cluster node secrets;};}
+  ];
+
+  checked = name: definition: let
+    evaluated = evalCluster name definition;
+    errors = validate evaluated;
+  in
+    if errors == []
+    then evaluated
+    else throw "cluster ${name}:\n  - ${lib.concatStringsSep "\n  - " errors}";
+
   mkCluster = name: dir: let
-    evaluated = evalCluster name {
+    cluster = checked name {
       _file = dir + "/cluster.nix";
       config = import (dir + "/cluster.nix");
     };
-    errors = validate evaluated;
-    cluster =
-      if errors == []
-      then evaluated
-      else throw "cluster ${name}:\n  - ${lib.concatStringsSep "\n  - " errors}";
     secrets = dir + "/secrets";
   in {
     nixosConfigurations = lib.mapAttrs' (nodeName: node:
       lib.nameValuePair "${name}-${nodeName}" (lib.nixosSystem {
-        specialArgs = {inherit inputs cluster node secrets;};
-        modules = [../modules];
+        specialArgs = {inherit inputs;};
+        modules = nodeModules cluster secrets node ++ [{nixpkgs.hostPlatform = pkgs.stdenv.hostPlatform.system;}];
       }))
     cluster.nodes;
 
-    cli = pkgs.callPackage ./cli.nix {inherit cluster secrets;};
+    cli = pkgs.callPackage ./cli.nix {
+      inherit cluster secrets;
+      secretsDir = "clusters/${name}/secrets";
+    };
   };
 }

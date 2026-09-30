@@ -27,7 +27,8 @@ clusters/<name>/secrets/         admin.pub, k3s-token.age, hosts/<node>/{ssh-key
 lib/options.nix                  every setting cluster.nix accepts, with descriptions
 lib/default.nix                  validation and per-node system assembly
 lib/cli.nix                      the per-cluster command
-modules/                         NixOS modules: base, network, k3s, loadbalancer, storage, gpu, vm, lxc
+modules/                         NixOS modules: base, network, k3s, network-policy, loadbalancer, storage, gpu, vm, lxc
+tests/                           a VM test cluster, its throwaway keys, and the test script
 ```
 
 ## Defining a cluster
@@ -38,6 +39,7 @@ A single machine:
 # clusters/lab/cluster.nix
 {
   stateVersion = "26.05";
+  k3sVersion = "1.35";
   nodes.lab1 = {
     roles = ["server"];
     wgIP = "10.100.0.1";
@@ -54,6 +56,7 @@ addresses for LoadBalancer services:
 ```nix
 {
   stateVersion = "26.05";
+  k3sVersion = "1.35";
   init = "cp1"; # the server that creates the cluster
   loadBalancerIPs = ["192.168.1.50-192.168.1.59"];
 
@@ -102,6 +105,51 @@ Without `loadBalancerIPs` the cluster uses k3s ServiceLB instead, which needs
 no extra pods but publishes services on every node's own address, so each
 port can be used by one service only.
 
+## Network policy
+
+> [!WARNING]
+> Workloads are closed by default. Every namespace except `kube-system`,
+> `kube-public`, `kube-node-lease`, `longhorn-system` and `metallb-system`
+> gets a NetworkPolicy named `default-deny`: its pods accept no connections,
+> not even from a LoadBalancer or from other namespaces, and can open none
+> except DNS lookups. A freshly deployed app therefore starts, passes its
+> health checks, and is unreachable until you allow its traffic.
+
+Allow what each app needs next to its manifests, for example:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: web, namespace: web}
+spec:
+  podSelector: {matchLabels: {app: web}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports: [{port: 8080}]                     # anyone, e.g. through its LoadBalancer
+  egress:
+    - to: [{podSelector: {matchLabels: {app: db}}}]
+      ports: [{port: 5432}]                     # its database in the same namespace
+    - to: [{ipBlock: {cidr: 0.0.0.0/0, except: [10.0.0.0/8]}}]
+      ports: [{port: 443}]                      # HTTPS to the internet
+```
+
+Things that need an explicit allow and are easy to forget: the Kubernetes API
+(operators, controllers, anything using a service account; allow egress to
+the servers' `wgIP` on port 6443), traffic between namespaces (both sides need
+a rule), and webhooks called by the API server.
+
+To leave a namespace open, e.g. while experimenting, label it:
+
+```bash
+kubectl label namespace scratch default-deny=off    # removes the policy
+kubectl label namespace scratch default-deny-       # restores it
+```
+
+Every server runs a small `default-deny` service that watches namespaces and
+adds or removes the policy within a second or two of a change. Deleting the
+policy by hand only lasts until that service next re-lists (at the latest after
+a k3s restart or about 30 minutes); use the label instead.
+
 ## First installation
 
 ```bash
@@ -118,8 +166,8 @@ nix run .#lab -- install cp2 root@<installer-ip>
 
 `install` boots VMs into NixOS with `nixos-anywhere`, putting the node's
 managed SSH host key in place so it can decrypt its secrets on first boot. For
-an LXC node it copies the host key into the running container and stages the
-new system; restart the container from Proxmox afterwards.
+an LXC node it copies the host key into the running container, stages the new
+system and restarts the container.
 
 ## Operating
 
@@ -151,8 +199,9 @@ nix run .#lab -- install w3 root@<ip>
 nix run .#lab -- switch all               # every node learns the new WireGuard peer
 ```
 
-The new node joins through whichever server answers first, so the `init`
-server does not need to be up. Until `switch all` has reached the other
+The new node joins through the `init` server, or through the other servers in
+alphabetical order if `init` does not accept connections, so `init` does not
+need to be up. Until `switch all` has reached the other
 nodes it cannot talk to them and stays NotReady; k3s keeps retrying.
 Existing nodes are not restarted: adding a WireGuard peer starts one extra
 unit, and MetalLB, Longhorn and CoreDNS settings that depend on the node count
@@ -171,10 +220,14 @@ nix run .#lab -- switch all
 is impossible while a volume has as many replicas as there are storage nodes:
 add a storage node first or lower that volume's replica count. For a node that
 is already dead it skips draining and just deletes it; deleting a server's
-node object also removes its etcd member.
+node object also removes its etcd member. On a live node `remove` stops k3s
+only until the next boot, because NixOS keeps `/etc` read-only: power the node
+off (or reinstall it) before it reboots, or it rejoins while the others still
+list it as a WireGuard peer. After `switch all` it can no longer reach them.
 
 Server counts stay odd in `cluster.nix`. Growing from 1 to 3 or 3 to 5 means
-adding both servers to the file and installing them one after the other.
+adding both servers to the file and installing them; they join through the
+existing servers, so the order does not matter.
 Changing a node's roles in place works for `storage` and `gpu`; to turn an
 agent into a server or back, remove it and add it again.
 
@@ -198,13 +251,32 @@ their own backup target, configured in Longhorn.
 
 ```bash
 nix fmt
-nix flake check
+nix flake check                                  # everything below; the VM test takes about 5 minutes
+nix build .#checks.x86_64-linux.vm -L            # only the VM test, with its log
 ```
 
 `flake check` evaluates every node, runs alejandra, deadnix and statix,
 ShellChecks each cluster command, and confirms that a set of broken cluster
-definitions is rejected. CI runs the same on every push.
+definitions is rejected. It also runs `tests/`: four VMs built from the real
+modules plus a deployer VM running the cluster command. The test checks that
+a node joins while the `init` server is down, that `ssh`, `kubeconfig`,
+`image` and `remove` work (including removing a dead server's etcd member),
+that a LoadBalancer address is assigned and reachable, and that the
+default-deny policy blocks traffic until an app's own policy allows it. It
+needs KVM and about 6 GB of free memory. CI runs the same on every push.
+`install`, `switch` and `rollback` are not covered: they need a real
+installer and a network connection.
 
-Upgrading k3s or NixOS means bumping `flake.lock` and running `switch all`.
-Chart versions and hashes are pinned in `modules/k3s.nix`, `storage.nix` and
-`gpu.nix`; move Longhorn one minor version at a time.
+## Upgrading
+
+Updates are manual. `nix flake update`, then `nix flake check`, then
+`switch all`. Patch releases of k3s arrive with the lock update. The
+Kubernetes minor version only changes when you raise `k3sVersion` in a
+cluster's `cluster.nix`, one minor version at a time; `switch all` upgrades
+the servers before the agents, as k3s requires.
+
+Chart versions and hashes are pinned in `modules/k3s.nix`, `loadbalancer.nix`,
+`storage.nix` and `gpu.nix`; move Longhorn one minor version at a time. The VM
+test runs without internet access, so when a chart's image changes, update
+the matching image digest in `tests/default.nix` as well
+(`nix run nixpkgs#nix-prefetch-docker -- --image-name … --image-tag …`).

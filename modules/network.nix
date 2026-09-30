@@ -59,12 +59,16 @@ in {
       listenPort = net.wgPort;
       privateKeyFile = config.age.secrets.wireguard.path;
       peers =
-        map (peer: {
+        map (peer: let
+          e = endpoint peer;
+        in {
           inherit (peer) name;
           publicKey = publicKey peer.name;
           allowedIPs = ["${peer.wgIP}/32"];
-          endpoint = endpoint peer;
+          endpoint = e;
           persistentKeepalive = 25;
+          # A DNS name is resolved once; re-resolve it so an address change heals.
+          dynamicEndpointRefreshSeconds = lib.mkIf (e != null && builtins.match "[0-9.]+:[0-9]+" e == null) 300;
         })
         peers;
     };

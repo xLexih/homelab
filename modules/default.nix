@@ -1,5 +1,6 @@
 # Every node: identity, SSH, admin access, Nix housekeeping.
-# Role- and platform-specific parts live in the imported modules.
+# Role-specific parts live in the imported modules; lib/default.nix adds
+# vm.nix or lxc.nix for the platform.
 {
   lib,
   pkgs,
@@ -13,28 +14,27 @@
     inputs.agenix.nixosModules.default
     ./network.nix
     ./k3s.nix
+    ./network-policy.nix
     ./storage.nix
     ./gpu.nix
     ./loadbalancer.nix
-    (
-      if node.platform == "lxc"
-      then ./lxc.nix
-      else ./vm.nix
-    )
   ];
 
-  nixpkgs.hostPlatform = "x86_64-linux";
   system.stateVersion = cluster.stateVersion;
 
-  users.users.root = {
-    initialHashedPassword = lib.mkForce null;
-    hashedPassword = lib.mkForce "!";
-  };
-  users.users.admin = {
-    isNormalUser = true;
-    hashedPassword = "!";
-    extraGroups = ["wheel"];
-    openssh.authorizedKeys.keyFiles = [(secrets + "/admin.pub")];
+  users = {
+    # Accounts and keys come only from this configuration.
+    mutableUsers = false;
+    users.root = {
+      initialHashedPassword = lib.mkForce null;
+      hashedPassword = lib.mkForce "!";
+    };
+    users.admin = {
+      isNormalUser = true;
+      hashedPassword = "!";
+      extraGroups = ["wheel"];
+      openssh.authorizedKeys.keyFiles = [(secrets + "/admin.pub")];
+    };
   };
   security.sudo.wheelNeedsPassword = false;
 
@@ -47,11 +47,15 @@
         type = "ed25519";
       }
     ];
+    # Only the keys in admin.pub; ~/.ssh/authorized_keys is ignored.
+    authorizedKeysInHomedir = false;
     settings = {
       AllowUsers = ["admin"];
+      AuthenticationMethods = "publickey";
       KbdInteractiveAuthentication = false;
       PasswordAuthentication = false;
       PermitRootLogin = "no";
+      AllowAgentForwarding = false;
     };
   };
   # The managed host key doubles as the agenix identity.

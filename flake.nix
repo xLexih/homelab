@@ -71,6 +71,7 @@
         '';
         validation = assert lib.all (x: x) (lib.mapAttrsToList rejected invalid);
           pkgs.runCommand "validation" {} "touch $out";
+        vm = import ./tests {inherit inputs lib pkgs clusterLib;};
       };
   };
 }

@@ -1,22 +1,51 @@
 # Running a node in a Proxmox LXC container
 
-The container must already run NixOS. The host provides the kernel, so load
-the modules k3s needs at boot on the Proxmox host
-(`/etc/modules-load.d/k3s.conf`):
+Use LXC where the host offers no hardware virtualisation or a VM costs too
+much performance. A container shares the host's kernel, so the host has to
+provide what a VM would configure for itself, and container root is much closer
+to host root than in a VM. Keep untrusted workloads on VM nodes where you can.
+
+The container must already run NixOS (Proxmox template `nixos`), with SSH
+reachable for `install`.
+
+## Host setup (once per Proxmox host)
+
+Kernel modules, loaded at boot:
 
 ```text
+# /etc/modules-load.d/k3s.conf
 overlay
 br_netfilter
 vxlan
 wireguard
-iscsi_tcp   # storage nodes only
+iscsi_tcp
 ```
 
-The `k3s-preflight` unit in the container checks for these modules, cgroup v2,
-`/dev/kmsg`, a writable `/proc/sys` and, on storage nodes, a mount on `/data`
-and an unlimited memlock limit. k3s does not start until they are present.
+`iscsi_tcp` is only needed for `storage` nodes.
 
-The profile TeddySMP runs with (`/etc/pve/lxc/100.conf`):
+Kernel settings. They apply to the whole host; the first four are what the
+kubelet requires and would otherwise try to set itself. With them, the host
+reboots 10 seconds after a kernel panic and treats an oops as a panic.
+
+```text
+# /etc/sysctl.d/90-k3s.conf
+vm.overcommit_memory = 1
+vm.panic_on_oom = 0
+kernel.panic = 10
+kernel.panic_on_oops = 1
+kernel.keys.root_maxkeys = 1000000
+kernel.keys.root_maxbytes = 25000000
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 524288
+net.netfilter.nf_conntrack_max = 262144
+```
+
+Apply both with `systemctl restart systemd-modules-load systemd-sysctl` or a
+reboot.
+
+## Container configuration
+
+`/etc/pve/lxc/<id>.conf`, recommended:
 
 ```text
 arch: amd64
@@ -24,31 +53,58 @@ cores: 5
 features: nesting=1,keyctl=1
 hostname: teddysmp
 memory: 14336
-net0: name=ens18,bridge=vmbr1,gw=192.168.2.1,hwaddr=BC:24:11:AD:5D:35,ip=192.168.2.100/24,type=veth
+net0: name=eth0,bridge=vmbr1,gw=192.168.2.1,hwaddr=BC:24:11:AD:5D:35,ip=192.168.2.100/24,type=veth
 ostype: nixos
 rootfs: local:100/vm-100-disk-0.raw,size=164G
 swap: 1024
 lxc.apparmor.profile: unconfined
 lxc.prlimit.memlock: unlimited
-lxc.mount.entry: /sys/fs/bpf sys/fs/bpf none bind,create=dir
 lxc.cgroup2.devices.allow: c 1:11 rwm
 lxc.mount.entry: /dev/kmsg dev/kmsg none bind,create=file
-lxc.cgroup2.devices.allow: c 10:200 rwm
-lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
-lxc.mount.auto: proc:rw sys:rw
-lxc.cap.drop:
 ```
 
-Notes on this profile:
+- The container is privileged (no `unprivileged: 1`): containerd and the
+  kubelet need real root.
+- `nesting=1` and the unconfined AppArmor profile let containerd mount
+  filesystems for pods.
+- `/dev/kmsg` is read by the kubelet.
+- `memlock: unlimited` is needed by Longhorn on storage nodes.
+- LXC's default capability drops apply (`sys_module`, `sys_time`,
+  `sys_rawio`, `mac_admin`, `mac_override`): pods cannot load kernel modules or
+  change the host clock.
+- `/proc/sys` and `/sys` stay read-only apart from the container's own
+  network settings (LXC's `mixed` default), so pods cannot change host kernel
+  settings. That is why the host sets them above.
+- The interface name in `net0` (`name=eth0`) must equal `interface` in
+  `cluster.nix`, which defaults to `ens18`: the static address and MetalLB's
+  announcements use it.
 
-- This profile has no `unprivileged: 1`, keeps every capability
-  (`lxc.cap.drop:` is empty) and disables AppArmor, so root inside the
-  container is close to root on the host. Use a VM for nodes that run
-  untrusted workloads. k3s no longer needs `CAP_SYS_MODULE` once the modules
-  above are preloaded, so dropping `sys_module` again is a reasonable first
-  hardening step (untested here).
-- `net0` names the interface `ens18`, while `clusters/teddysmp/cluster.nix`
-  configures `eth0`. One of them is out of date; `interface` must match the
-  name inside the container for the static address and for MetalLB, which
-  announces service addresses only on that interface.
-- The `/sys/fs/bpf` mount was needed by Cilium and can go.
+The `k3s-preflight` unit in the container checks all of this before k3s starts
+and lists everything that is missing:
+
+```bash
+nix run .#teddysmp -- ssh teddysmp journalctl -b -u k3s-preflight -u k3s
+```
+
+The Proxmox console (`pct console <id>` or the web UI) logs in as `admin`
+without a password; anyone who can open it controls the host anyway.
+
+## Moving teddysmp to this profile
+
+teddysmp currently runs a looser profile that also has
+`lxc.mount.auto: proc:rw sys:rw` (host kernel settings writable from the
+container), an empty `lxc.cap.drop:` (keeps every capability), and bind mounts
+of `/sys/fs/bpf` (only Cilium used it) and `/dev/net/tun` (keep it only if a
+workload needs TUN devices, e.g. a VPN).
+
+1. Do the host setup above and check it: `sysctl kernel.panic vm.overcommit_memory`
+   and `lsmod | grep -E 'vxlan|wireguard'`.
+2. Remove those four lines from the container's configuration and fix the
+   interface name so it matches `cluster.nix` (`eth0` there today).
+3. `pct reboot <id>`, then check that the node becomes Ready. If
+   `k3s-preflight` fails it names what is missing; if k3s itself fails,
+   `journalctl -u k3s` shows why. Putting the lines back restores the old
+   behaviour.
+
+This profile follows from what the kubelet and kube-proxy need but has not
+been tested on a Proxmox host yet. Try it on a spare container first.

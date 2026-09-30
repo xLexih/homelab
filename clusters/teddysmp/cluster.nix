@@ -1,6 +1,7 @@
 # Single-node cluster in a Proxmox LXC container, reachable as teddysmp.com.
 {
   stateVersion = "26.05";
+  k3sVersion = "1.35";
   loadBalancerIPs = ["192.168.2.150"];
 
   network = {

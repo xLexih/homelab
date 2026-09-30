@@ -21,10 +21,17 @@
   s3 = cluster.etcdS3;
   dnsIP = ip.host net.serviceCIDR 10;
   dnsReplicas = lib.min 2 (builtins.length nodes);
-  # Joining nodes resolve this name to every other server and use the first
-  # that answers, so any live server can admit new nodes.
+  # Joining nodes resolve this name to the other servers, `init` first, and
+  # connect to the first that accepts, so any live server can admit new nodes.
+  # A server that answers but has not joined itself yet blocks the join, hence
+  # the fixed order.
   joinName = "api.${cluster.name}.internal";
-  otherServers = lib.filter (n: lib.elem "server" n.roles && n.name != node.name) nodes;
+  joinVia = lib.filter (n: lib.elem "server" n.roles && n.name != node.name) (
+    [cluster.nodes.${cluster.init}] ++ lib.filter (n: n.name != cluster.init) nodes
+  );
+  package =
+    pkgs."k3s_${builtins.replaceStrings ["."] ["_"] cluster.k3sVersion}"
+    or (throw "k3sVersion ${cluster.k3sVersion} is not in this nixpkgs; available: ${toString (builtins.filter (lib.hasPrefix "k3s_1_") (builtins.attrNames pkgs))}");
 
   podSecurity = (pkgs.formats.json {}).generate "pod-security.json" {
     apiVersion = "apiserver.config.k8s.io/v1";
@@ -38,10 +45,9 @@
           defaults = {
             enforce = "baseline";
             enforce-version = "latest";
+            # shown to kubectl users; there is no audit log to write to
             warn = "restricted";
             warn-version = "latest";
-            audit = "restricted";
-            audit-version = "latest";
           };
           exemptions.namespaces = ["kube-system" "longhorn-system" "metallb-system"];
         };
@@ -59,21 +65,22 @@ in {
   age.secrets.k3s-token.file = secrets + "/k3s-token.age";
   age.secrets.etcd-s3 = lib.mkIf (isServer && s3 != null) {file = secrets + "/etcd-s3.age";};
 
-  boot.kernel.sysctl = {
-    "net.ipv4.ip_forward" = 1;
-    "fs.inotify.max_user_instances" = 8192;
-    "fs.inotify.max_user_watches" = 524288;
-  };
+  # fs.inotify limits are global: set in vm.nix, or on the host for LXC.
+  boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
 
   systemd.services.k3s = {
     wants = ["wireguard-wg0.service"];
     after = ["wireguard-wg0.service"];
+    # glibc reorders /etc/hosts answers by address prefix (RFC 6724); Go's own
+    # resolver keeps the file order.
+    environment.GODEBUG = "netdns=go";
   };
 
-  networking.hosts = lib.listToAttrs (map (n: lib.nameValuePair n.wgIP [joinName]) otherServers);
+  networking.extraHosts = lib.concatMapStrings (n: "${n.wgIP} ${joinName}\n") joinVia;
 
   services.k3s = {
     enable = true;
+    inherit package;
     role =
       if isServer
       then "server"
@@ -96,6 +103,12 @@ in {
         "--flannel-iface=wg0"
         # NodePorts stay on the mesh; publish services with type LoadBalancer.
         "--kube-proxy-arg=nodeport-addresses=${net.wgCIDR}"
+        # Memory and CPU pods cannot take from the OS and k3s itself.
+        "--kubelet-arg=system-reserved=${
+          if isServer
+          then cluster.reserved.server
+          else cluster.reserved.agent
+        }"
       ]
       ++ lib.optionals isServer [
         "--bind-address=${node.wgIP}"
@@ -118,7 +131,9 @@ in {
       ];
 
     # CoreDNS from the upstream chart: k3s ships a single replica.
-    autoDeployCharts.coredns = lib.mkIf isServer {
+    # Not named "coredns": k3s always writes its own manifests/coredns.yaml,
+    # even when disabled, and fails if that file is our read-only chart.
+    autoDeployCharts.cluster-dns = lib.mkIf isServer {
       name = "coredns";
       repo = "https://coredns.github.io/helm";
       version = "1.48.1";
@@ -135,14 +150,21 @@ in {
           clusterIP = dnsIP;
         };
         podDisruptionBudget = lib.optionalAttrs (dnsReplicas > 1) {maxUnavailable = 1;};
-        topologySpreadConstraints = [
+        # Never both replicas on one node (the second waits for another node
+        # while the cluster grows), and leave a failed node after 30 s
+        # instead of 300 s.
+        affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution = [
           {
-            maxSkew = 1;
             topologyKey = "kubernetes.io/hostname";
-            whenUnsatisfiable = "ScheduleAnyway";
             labelSelector.matchLabels."k8s-app" = "kube-dns";
           }
         ];
+        tolerations = map (key: {
+          inherit key;
+          operator = "Exists";
+          effect = "NoExecute";
+          tolerationSeconds = 30;
+        }) ["node.kubernetes.io/not-ready" "node.kubernetes.io/unreachable"];
       };
     };
   };

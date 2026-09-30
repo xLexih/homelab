@@ -1,6 +1,7 @@
 # Three-node HA cluster: every node is a server, a Longhorn storage node and
 # a workload node; master1 also carries the GPU.
 {
+  k3sVersion = "1.35";
   stateVersion = "26.05";
   init = "master1";
   loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
