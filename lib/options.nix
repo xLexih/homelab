@@ -121,13 +121,18 @@ in {
       defaultText = "the only server";
       description = "Server that bootstrapped etcd. Required when there are several servers; never change it.";
     };
-    vip = mkOption {
-      type = types.nullOr ipv4;
-      default = null;
+    loadBalancerIPs = mkOption {
+      type = types.listOf (types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2}|-([0-9]{1,3}\\.){3}[0-9]{1,3})?");
+      default = [];
+      example = ["192.168.1.50" "192.168.1.60-192.168.1.69" "192.168.1.80/29"];
       description = ''
-        Floating LAN address held by one healthy node (keepalived/VRRP) of the
-        nodes whose `address` subnet contains it. LoadBalancer services are
-        reachable on it and on every node address.
+        LAN addresses for services of type LoadBalancer: single addresses,
+        ranges or CIDRs, each inside the subnet of some nodes' `address`.
+        Every service gets its own address (MetalLB, layer 2), announced by
+        one of those nodes and moved to another when it fails. Pin one with
+        the annotation `metallb.io/loadBalancerIPs`.
+        Empty: k3s ServiceLB publishes services on every node's address, one
+        service per port.
       '';
     };
     gpuSharing = mkOption {

@@ -1,7 +1,7 @@
 # Single-node cluster in a Proxmox LXC container, reachable as teddysmp.com.
 {
   stateVersion = "26.05";
-  vip = "192.168.2.150";
+  loadBalancerIPs = ["192.168.2.150"];
 
   network = {
     serviceCIDR = "10.44.0.0/16";

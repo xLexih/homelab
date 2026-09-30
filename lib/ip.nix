@@ -15,27 +15,35 @@ lib: rec {
       else 32;
   };
 
-  range = cidr: let
-    c = parse cidr;
+  # "a.b.c.d", "a.b.c.d/n" or "a.b.c.d-e.f.g.h" -> { first; last; } as integers
+  span = s: let
+    ends = lib.splitString "-" s;
+    c = parse s;
     size = lib.foldl' (acc: _: acc * 2) 1 (lib.range 1 (32 - c.prefix));
     first = toInt c.ip / size * size;
-  in {
-    inherit first;
-    last = first + size - 1;
-  };
-
-  contains = cidr: ip: let
-    r = range cidr;
-    n = toInt ip;
   in
-    n >= r.first && n <= r.last;
+    if builtins.length ends == 2
+    then {
+      first = toInt (builtins.head ends);
+      last = toInt (lib.last ends);
+    }
+    else {
+      inherit first;
+      last = first + size - 1;
+    };
+
+  within = outer: inner: let
+    o = span outer;
+    i = span inner;
+  in
+    o.first <= i.first && i.last <= o.last;
 
   overlaps = a: b: let
-    ra = range a;
-    rb = range b;
+    sa = span a;
+    sb = span b;
   in
-    ra.first <= rb.last && rb.first <= ra.last;
+    sa.first <= sb.last && sb.first <= sa.last;
 
   # nth address of a network: (host "10.43.0.0/16" 10) == "10.43.0.10"
-  host = cidr: n: fromInt ((range cidr).first + n);
+  host = cidr: n: fromInt ((span cidr).first + n);
 }

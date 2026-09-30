@@ -38,7 +38,10 @@
       "must be unique" = set {nodes.master2.wgIP = "10.100.0.1";};
       "must not overlap" = set {network.serviceCIDR = "10.42.128.0/17";};
       "need `dataDisk`" = set {nodes.master2.dataDisk = null;};
-      "vip must be inside" = home // {vip = "10.9.9.9";};
+      "inside the `address` subnet" = home // {loadBalancerIPs = ["10.9.9.9"];};
+      "entries must not overlap" = home // {loadBalancerIPs = ["192.168.2.150-192.168.2.160" "192.168.2.160/32"];};
+      "include node or gateway" = home // {loadBalancerIPs = ["192.168.2.100-192.168.2.110"];};
+      "written low-high" = home // {loadBalancerIPs = ["192.168.2.160-192.168.2.150"];};
     };
     rejected = expected: definition: let
       errors = clusterLib.validate (clusterLib.evalCluster "test" definition);

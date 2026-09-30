@@ -3,7 +3,7 @@
 {
   stateVersion = "26.05";
   init = "master1";
-  vip = "192.168.2.150";
+  loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
   gpuSharing = 3;
 
   nodes = {

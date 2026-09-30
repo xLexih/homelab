@@ -18,13 +18,16 @@
     wgIPs = map (n: n.wgIP) nodes;
     require = ok: msg: lib.optional (!ok) msg;
     net = c.network;
+    lbs = c.loadBalancerIPs;
+    reserved = lib.filter (a: a != null) (lib.concatMap (n: [n.ip n.gateway]) nodes);
+    lbClash = lib.concatLists (lib.imap0 (i: a: map (ip.overlaps a) (lib.drop (i + 1) lbs)) lbs);
 
     nodeErrors = n: let
       require' = ok: msg: require ok "node ${n.name}: ${msg}";
     in
       lib.concatLists [
         (require' (builtins.match "[a-z0-9]([-a-z0-9]*[a-z0-9])?" n.name != null) "name must be a lowercase DNS label")
-        (require' (ip.contains net.wgCIDR n.wgIP) "wgIP must be inside network.wgCIDR (${net.wgCIDR})")
+        (require' (ip.within net.wgCIDR n.wgIP) "wgIP must be inside network.wgCIDR (${net.wgCIDR})")
         (require' (n.sshHost != null) "set `address` or `endpoint` so it can be reached")
         (require' (n.address == null || n.gateway != null) "a static `address` needs a `gateway`")
         (require' (n.platform == "lxc" || n.disk != null) "VM nodes need `disk`")
@@ -40,7 +43,10 @@
         (require (servers == [] || lib.any (n: n.name == c.init) servers) "`init` must name the server that bootstrapped etcd")
         (require (lib.unique wgIPs == wgIPs) "wgIP values must be unique")
         (require (!(ip.overlaps net.podCIDR net.serviceCIDR || ip.overlaps net.podCIDR net.wgCIDR || ip.overlaps net.serviceCIDR net.wgCIDR)) "network.podCIDR, serviceCIDR and wgCIDR must not overlap")
-        (require (c.vip == null || lib.any (n: n.address != null && ip.contains n.address c.vip) nodes) "vip must be inside the `address` subnet of at least one node")
+        (require (lib.all (e: (ip.span e).first <= (ip.span e).last) lbs) "loadBalancerIPs ranges must be written low-high")
+        (require (lib.all (e: lib.any (n: n.address != null && ip.within n.address e) nodes) lbs) "every loadBalancerIPs entry must be inside the `address` subnet of at least one node")
+        (require (!lib.any lib.id lbClash) "loadBalancerIPs entries must not overlap")
+        (require (!lib.any (a: lib.any (e: ip.within e a) lbs) reserved) "loadBalancerIPs must not include node or gateway addresses")
       ]
       ++ map nodeErrors nodes
     );

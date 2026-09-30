@@ -1,8 +1,8 @@
-# k3s server/agent. Networking, service load balancing, network policy and
-# metrics are the components embedded in k3s (flannel over wg0, kube-proxy,
-# ServiceLB, kube-router policy, metrics-server). Every server carries the
-# same add-on charts in its manifest directory, so any live server reconciles
-# them; charts are fetched at build time and served from the node.
+# k3s server/agent. Networking, network policy and metrics are the components
+# embedded in k3s (flannel over wg0, kube-proxy, kube-router policy,
+# metrics-server). Every server carries the same add-on charts in its manifest
+# directory, so any live server reconciles them; charts are fetched at build
+# time and served from the node.
 {
   lib,
   pkgs,
@@ -39,7 +39,7 @@
             audit = "restricted";
             audit-version = "latest";
           };
-          exemptions.namespaces = ["kube-system" "longhorn-system"];
+          exemptions.namespaces = ["kube-system" "longhorn-system" "metallb-system"];
         };
       }
     ];

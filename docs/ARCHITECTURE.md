@@ -19,14 +19,15 @@ Roles are plain module conditions: `storage.nix` is active on every node once
 some node has `storage` (clients everywhere, replicas on storage nodes, the
 chart on servers); `gpu.nix` installs the driver on `gpu` nodes and the device
 plugin on servers; `k3s.nix` picks server or agent from `server`.
+`loadbalancer.nix` follows `loadBalancerIPs` instead of a role.
 
 ## Network
 
 ```text
-             LAN (SSH, WireGuard UDP, VRRP)
+             LAN (SSH, WireGuard UDP; ARP for service addresses)
    +------------+------------+------------+
    |            |            |            |
- node A ------ node B ------ node C       VIP (keepalived) on one healthy node
+ node A ------ node B ------ node C       each service address answered by one node
    \___________ wg0 full mesh ___________/
       k3s API, etcd, kubelet, flannel VXLAN
 ```
@@ -39,12 +40,15 @@ plugin on servers; `k3s.nix` picks server or agent from `server`.
   per-node configuration and all cluster traffic is encrypted.
 - kube-proxy (iptables), network policy (kube-router) and metrics-server are
   the components embedded in k3s. NodePorts only listen on the mesh.
-- Services of type LoadBalancer use k3s ServiceLB and are reachable on every
-  node's LAN address. With `vip` set, keepalived moves that address to a node
-  whose k3s is running; VRRP uses unicast between nodes on the VIP's subnet
-  and the router id is the VIP's last octet.
-- The LAN firewall allows SSH, the WireGuard port and VRRP. `wg0`, `cni0` and
-  `flannel.1` are trusted. ServiceLB and hostPort traffic is DNATed before the
+- With `loadBalancerIPs`, MetalLB in layer 2 mode assigns LoadBalancer
+  addresses. Each entry becomes an address pool plus an advertisement limited
+  to the nodes whose `address` subnet contains it and to their LAN interface.
+  Speakers elect one node per address, answer ARP from it and hand over when
+  their memberlist (over `wg0`) loses that node. kube-proxy DNATs the traffic
+  on arrival. Without `loadBalancerIPs`, k3s ServiceLB publishes services on
+  the node addresses instead.
+- The LAN firewall allows SSH and the WireGuard port. `wg0`, `cni0` and
+  `flannel.1` are trusted. Service and hostPort traffic is DNATed before the
   input chain.
 
 ## Control plane
@@ -57,13 +61,13 @@ new nodes from joining; point `init` at another server if it is gone for good.
 
 Servers run with `--secrets-encryption` and a PodSecurity admission
 configuration enforcing `baseline` (warning and auditing `restricted`) outside
-`kube-system` and `longhorn-system`. Namespaces that need privileged pods opt
+`kube-system`, `longhorn-system` and `metallb-system`. Namespaces that need privileged pods opt
 out with the label `pod-security.kubernetes.io/enforce=privileged`.
 
 ## Add-ons
 
 CoreDNS (two replicas spread across nodes, replacing the single k3s replica),
-Longhorn and the NVIDIA device plugin are Helm charts fetched at build time
+MetalLB, Longhorn and the NVIDIA device plugin are Helm charts fetched at build time
 with pinned hashes and written to every server's manifest directory. The k3s
 helm-controller installs and upgrades them from whichever server is alive, and
 nothing is downloaded at boot besides container images. The charts use

@@ -49,5 +49,6 @@ Notes on this profile:
   hardening step (untested here).
 - `net0` names the interface `ens18`, while `clusters/teddysmp/cluster.nix`
   configures `eth0`. One of them is out of date; `interface` must match the
-  name inside the container for the static address and the VIP.
+  name inside the container for the static address and for MetalLB, which
+  announces service addresses only on that interface.
 - The `/sys/fs/bpf` mount was needed by Cilium and can go.

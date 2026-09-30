@@ -1,11 +1,10 @@
-# LAN address, WireGuard full mesh, firewall and the optional virtual IP.
+# LAN address, WireGuard full mesh and firewall.
 #
 # Everything Kubernetes does (API, etcd, kubelet, flannel VXLAN) travels over
-# wg0; the LAN only exposes SSH, WireGuard and VRRP. LoadBalancer services
-# (k3s ServiceLB) are DNATed before the input firewall, as are hostPorts.
+# wg0; the LAN only exposes SSH and WireGuard. LoadBalancer and hostPort
+# traffic is DNATed by kube-proxy/ServiceLB before the input firewall.
 {
   lib,
-  pkgs,
   config,
   cluster,
   node,
@@ -31,10 +30,6 @@
     if builtins.pathExists file
     then lib.removeSuffix "\n" (builtins.readFile file)
     else throw "missing ${file}; run: nix run .#${cluster.name} -- secrets sync";
-
-  # Nodes on the VIP's subnet share it through VRRP.
-  vipNodes = lib.filter (n: n.address != null && ip.contains n.address cluster.vip) nodes;
-  holdsVip = cluster.vip != null && lib.any (n: n.name == node.name) vipNodes;
 in {
   age.secrets.wireguard.file = secrets + "/hosts/${node.name}/wireguard.age";
 
@@ -53,7 +48,7 @@ in {
     nameservers = lib.mkIf (node.address != null) net.nameservers;
 
     firewall = {
-      # SSH is opened by services.openssh, VRRP by keepalived.
+      # SSH is opened by services.openssh.
       allowedUDPPorts = [net.wgPort];
       trustedInterfaces = ["wg0" "cni0" "flannel.1"];
       checkReversePath = "loose";
@@ -72,27 +67,6 @@ in {
           persistentKeepalive = 25;
         })
         peers;
-    };
-  };
-
-  services.keepalived = lib.mkIf holdsVip {
-    enable = true;
-    openFirewall = true;
-    vrrpScripts.k3s = {
-      script = "${pkgs.systemd}/bin/systemctl is-active --quiet k3s.service";
-      interval = 2;
-      rise = 2;
-      fall = 2;
-      user = "nobody";
-    };
-    vrrpInstances.vip = {
-      inherit (node) interface;
-      # Unique per VIP, so several clusters can share a LAN.
-      virtualRouterId = lib.toInt (lib.last (lib.splitString "." cluster.vip));
-      unicastSrcIp = node.ip;
-      unicastPeers = map (n: n.ip) (lib.filter (n: n.name != node.name) vipNodes);
-      virtualIps = [{addr = "${cluster.vip}/${toString (ip.parse node.address).prefix}";}];
-      trackScripts = ["k3s"];
     };
   };
 }

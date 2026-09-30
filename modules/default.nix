@@ -15,6 +15,7 @@
     ./k3s.nix
     ./storage.nix
     ./gpu.nix
+    ./loadbalancer.nix
     (
       if node.platform == "lxc"
       then ./lxc.nix

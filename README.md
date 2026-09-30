@@ -27,7 +27,7 @@ clusters/<name>/secrets/         admin.pub, k3s-token.age, hosts/<node>/{ssh-key
 lib/options.nix                  every setting cluster.nix accepts, with descriptions
 lib/default.nix                  validation and per-node system assembly
 lib/cli.nix                      the per-cluster command
-modules/                         NixOS modules: base, network, k3s, storage, gpu, vm, lxc
+modules/                         NixOS modules: base, network, k3s, loadbalancer, storage, gpu, vm, lxc
 ```
 
 ## Defining a cluster
@@ -48,14 +48,14 @@ A single machine:
 }
 ```
 
-Three servers with replicated storage, two plain workers and a floating LAN
-address for LoadBalancer services:
+Three servers with replicated storage, two plain workers and a pool of LAN
+addresses for LoadBalancer services:
 
 ```nix
 {
   stateVersion = "26.05";
   init = "cp1"; # the server that bootstraps etcd; never change it afterwards
-  vip = "192.168.1.50";
+  loadBalancerIPs = ["192.168.1.50-192.168.1.59"];
 
   nodes = let
     node = n: roles: {
@@ -80,7 +80,27 @@ public `endpoint`; nodes behind NAT without an endpoint are dialled by the
 others. `platform = "lxc"` targets an existing NixOS container whose disks the
 Proxmox host manages (see [docs/lxc.md](docs/lxc.md)). Evaluation rejects
 inconsistent definitions (even server counts, overlapping ranges, storage
-nodes without a data disk, a VIP outside every node's subnet, and so on).
+nodes without a data disk, load balancer addresses outside the LAN or on top
+of a node's address, and so on).
+
+## Load balancer addresses
+
+`loadBalancerIPs` accepts single addresses, ranges and CIDRs, as many as you
+like. With it set, MetalLB gives every `type: LoadBalancer` service its own
+address; one node on that subnet answers for it and another takes over within
+seconds if the node fails. Several services can therefore use the same port.
+Pin an address or share one between services with annotations:
+
+```yaml
+metadata:
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.1.53
+    metallb.io/allow-shared-ip: dns   # same key on the TCP and UDP service
+```
+
+Without `loadBalancerIPs` the cluster uses k3s ServiceLB instead, which needs
+no extra pods but publishes services on every node's own address, so each
+port can be used by one service only.
 
 ## First installation
 
