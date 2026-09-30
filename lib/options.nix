@@ -119,7 +119,13 @@ in {
         then builtins.head servers
         else null;
       defaultText = "the only server";
-      description = "Server that bootstrapped etcd. Required when there are several servers; never change it.";
+      description = ''
+        Server that creates the cluster (k3s --cluster-init); every other node
+        joins through any running server. Required with several servers.
+        Once the cluster exists it may name any server that has already
+        joined, e.g. when removing this one; never a server that is still to
+        be installed, which would start a second cluster.
+      '';
     };
     loadBalancerIPs = mkOption {
       type = types.listOf (types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2}|-([0-9]{1,3}\\.){3}[0-9]{1,3})?");

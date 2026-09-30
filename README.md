@@ -54,7 +54,7 @@ addresses for LoadBalancer services:
 ```nix
 {
   stateVersion = "26.05";
-  init = "cp1"; # the server that bootstraps etcd; never change it afterwards
+  init = "cp1"; # the server that creates the cluster
   loadBalancerIPs = ["192.168.1.50-192.168.1.59"];
 
   nodes = let
@@ -128,6 +128,7 @@ new system; restart the container from Proxmox afterwards.
 | `nix run .#lab -- switch all` | deploy every node: init, other servers, agents; stops at the first node that is not `Ready` |
 | `nix run .#lab -- switch cp2 w1` | deploy some nodes |
 | `nix run .#lab -- rollback cp2` | back to the previous generation |
+| `nix run .#lab -- remove cp2` | move data and workloads off a node and delete it from Kubernetes and etcd |
 | `nix run .#lab -- ssh cp2` | SSH with the pinned host key |
 | `nix run .#lab -- kubeconfig` | write `~/.kube/lab.yaml` and print the SSH tunnel command for the API |
 | `nix run .#lab -- image app.tar.gz` | import an image archive on every node |
@@ -139,10 +140,43 @@ Secrets are decrypted with `$AGE_IDENTITY` (default `~/.ssh/k3s-admin`);
 and stages generated files with `git add`, because the flake only sees tracked
 files.
 
-Adding a node: add it to `cluster.nix`, run `secrets sync`, `install` it, then
-`switch all` so every peer learns its WireGuard key. Removing one: drain and
-delete it in Kubernetes, remove it from `cluster.nix`, `secrets sync`,
-`switch all`, then delete its `secrets/hosts/<node>` directory.
+## Adding and removing nodes
+
+Adding a node, any role, any time:
+
+```bash
+$EDITOR clusters/lab/cluster.nix          # add the node
+nix run .#lab -- secrets sync             # its keys; the token is re-encrypted for it
+nix run .#lab -- install w3 root@<ip>
+nix run .#lab -- switch all               # every node learns the new WireGuard peer
+```
+
+The new node joins through whichever server answers first, so the `init`
+server does not need to be up. Until `switch all` has reached the other
+nodes it cannot talk to them and stays NotReady; k3s keeps retrying.
+Existing nodes are not restarted: adding a WireGuard peer starts one extra
+unit, and MetalLB, Longhorn and CoreDNS settings that depend on the node count
+are updated by the helm-controller.
+
+Removing a node:
+
+```bash
+nix run .#lab -- remove w3                # cordon, move Longhorn replicas, drain, delete
+$EDITOR clusters/lab/cluster.nix          # delete the node (and move `init` if it was that one)
+nix run .#lab -- secrets sync             # deletes its keys, drops it as a recipient
+nix run .#lab -- switch all
+```
+
+`remove` waits until Longhorn has rebuilt the node's replicas elsewhere, which
+is impossible while a volume has as many replicas as there are storage nodes:
+add a storage node first or lower that volume's replica count. For a node that
+is already dead it skips draining and just deletes it; deleting a server's
+node object also removes its etcd member.
+
+Server counts stay odd in `cluster.nix`. Growing from 1 to 3 or 3 to 5 means
+adding both servers to the file and installing them one after the other.
+Changing a node's roles in place works for `storage` and `gpu`; to turn an
+agent into a server or back, remove it and add it again.
 
 ## Backups
 

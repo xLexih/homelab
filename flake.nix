@@ -42,6 +42,7 @@
       "entries must not overlap" = home // {loadBalancerIPs = ["192.168.2.150-192.168.2.160" "192.168.2.160/32"];};
       "include node or gateway" = home // {loadBalancerIPs = ["192.168.2.100-192.168.2.110"];};
       "written low-high" = home // {loadBalancerIPs = ["192.168.2.160-192.168.2.150"];};
+      "no WireGuard path" = set {nodes.master3.location = "elsewhere";};
     };
     rejected = expected: definition: let
       errors = clusterLib.validate (clusterLib.evalCluster "test" definition);

@@ -21,6 +21,10 @@
   s3 = cluster.etcdS3;
   dnsIP = ip.host net.serviceCIDR 10;
   dnsReplicas = lib.min 2 (builtins.length nodes);
+  # Joining nodes resolve this name to every other server and use the first
+  # that answers, so any live server can admit new nodes.
+  joinName = "api.${cluster.name}.internal";
+  otherServers = lib.filter (n: lib.elem "server" n.roles && n.name != node.name) nodes;
 
   podSecurity = (pkgs.formats.json {}).generate "pod-security.json" {
     apiVersion = "apiserver.config.k8s.io/v1";
@@ -66,6 +70,8 @@ in {
     after = ["wireguard-wg0.service"];
   };
 
+  networking.hosts = lib.listToAttrs (map (n: lib.nameValuePair n.wgIP [joinName]) otherServers);
+
   services.k3s = {
     enable = true;
     role =
@@ -73,7 +79,7 @@ in {
       then "server"
       else "agent";
     clusterInit = isInit;
-    serverAddr = lib.optionalString (!isInit) "https://${cluster.nodes.${cluster.init}.wgIP}:6443";
+    serverAddr = lib.optionalString (!isInit) "https://${joinName}:6443";
     tokenFile = config.age.secrets.k3s-token.path;
     nodeIP = node.wgIP;
     nodeExternalIP = node.ip;
@@ -95,6 +101,7 @@ in {
         "--bind-address=${node.wgIP}"
         "--advertise-address=${node.wgIP}"
         "--tls-san=127.0.0.1"
+        "--tls-san=${joinName}"
         "--cluster-cidr=${net.podCIDR}"
         "--service-cidr=${net.serviceCIDR}"
         "--cluster-dns=${dnsIP}"

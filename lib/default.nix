@@ -20,7 +20,11 @@
     net = c.network;
     lbs = c.loadBalancerIPs;
     reserved = lib.filter (a: a != null) (lib.concatMap (n: [n.ip n.gateway]) nodes);
-    lbClash = lib.concatLists (lib.imap0 (i: a: map (ip.overlaps a) (lib.drop (i + 1) lbs)) lbs);
+    pairs = xs: lib.concatLists (lib.imap0 (i: a: map (b: [a b]) (lib.drop (i + 1) xs)) xs);
+    lbClash = lib.any (p: ip.overlaps (lib.head p) (lib.last p)) (pairs lbs);
+    # b can open a WireGuard session to a (mirrors `endpoint` in modules/network.nix)
+    dialable = a: b: a.endpoint != null || a.location == b.location && a.ip != null;
+    isolated = lib.filter (p: !(dialable (lib.head p) (lib.last p) || dialable (lib.last p) (lib.head p))) (pairs nodes);
 
     nodeErrors = n: let
       require' = ok: msg: require ok "node ${n.name}: ${msg}";
@@ -45,7 +49,8 @@
         (require (!(ip.overlaps net.podCIDR net.serviceCIDR || ip.overlaps net.podCIDR net.wgCIDR || ip.overlaps net.serviceCIDR net.wgCIDR)) "network.podCIDR, serviceCIDR and wgCIDR must not overlap")
         (require (lib.all (e: (ip.span e).first <= (ip.span e).last) lbs) "loadBalancerIPs ranges must be written low-high")
         (require (lib.all (e: lib.any (n: n.address != null && ip.within n.address e) nodes) lbs) "every loadBalancerIPs entry must be inside the `address` subnet of at least one node")
-        (require (!lib.any lib.id lbClash) "loadBalancerIPs entries must not overlap")
+        (require (!lbClash) "loadBalancerIPs entries must not overlap")
+        (require (isolated == []) "no WireGuard path between ${lib.concatMapStringsSep ", " (p: "${(lib.head p).name} and ${(lib.last p).name}") isolated}; give one of each pair an `endpoint`")
         (require (!lib.any (a: lib.any (e: ip.within e a) lbs) reserved) "loadBalancerIPs must not include node or gateway addresses")
       ]
       ++ map nodeErrors nodes

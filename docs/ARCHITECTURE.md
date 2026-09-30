@@ -54,10 +54,14 @@ plugin on servers; `k3s.nix` picks server or agent from `server`.
 ## Control plane
 
 The `init` server starts etcd with `--cluster-init` (also for a single server,
-so snapshots work everywhere). Other nodes register through the init server's
-WireGuard address. After registration servers use the etcd member list and
-agents use the k3s client load balancer, so a missing init server only blocks
-new nodes from joining; point `init` at another server if it is gone for good.
+so snapshots work and more servers can be added later). Every other node
+joins through `api.<cluster>.internal`, which `/etc/hosts` maps to the
+WireGuard address of every other server; the connection goes to the first
+one that answers, and all servers carry that name in their certificate.
+After joining, servers use the etcd member list and agents the k3s client load
+balancer, which learns the current servers from the API. `--cluster-init` is
+ignored once a node has etcd data, so `init` can be moved to any server that
+has already joined.
 
 Servers run with `--secrets-encryption` and a PodSecurity admission
 configuration enforcing `baseline` (warning and auditing `restricted`) outside

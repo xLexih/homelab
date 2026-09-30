@@ -53,6 +53,7 @@ in
         then "server"
         else "agent")}
       ${table "WGIP" (n: n.wgIP)}
+      ${table "STORAGE" (n: lib.optionalString (lib.elem "storage" n.roles) "yes")}
 
       die() { echo "error: $*" >&2; exit 1; }
 
@@ -63,6 +64,9 @@ in
         install <node> <user@host>   first installation; a VM's disks are ERASED
         switch <node>... | all       deploy; 'all' goes ''${order[*]} one at a time
                                      and waits for each node to be Ready
+        remove <node>                move its data and workloads away and delete it
+                                     from Kubernetes (and etcd); then drop it from
+                                     cluster.nix, secrets sync, switch all
         rollback <node>              activate the previous generation
         ssh <node> [command]
         kubeconfig [node]            write ~/.kube/$cluster.yaml, print the tunnel
@@ -88,7 +92,7 @@ in
       }
 
       ssh_opts() {
-        SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts" -p "''${PORT[$1]}")
+        SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts" -p "''${PORT[$1]}")
       }
 
       remote() {
@@ -97,6 +101,24 @@ in
         ssh_opts "$node"
         # shellcheck disable=SC2029 # arguments are a remote command line by design
         ssh "''${SSH_OPTS[@]}" "admin@''${HOST[$node]}" "$@"
+      }
+
+      kube() {
+        local server=$1
+        shift
+        remote "$server" "sudo k3s kubectl $(printf '%q ' "$@")"
+      }
+
+      # First server other than $1 that is reachable and runs k3s.
+      live_server() {
+        local n
+        for n in "''${order[@]}"; do
+          if [[ $n != "''${1:-}" && ''${ROLE[$n]} == server ]] && remote "$n" systemctl is-active --quiet k3s 2>/dev/null; then
+            echo "$n"
+            return
+          fi
+        done
+        return 1
       }
 
       rebuild() {
@@ -116,17 +138,22 @@ in
           return
         fi
         rebuild switch "$node" "$@"
-        [[ ''${ROLE[$node]} == server ]] || probe=$init
+        if [[ ''${ROLE[$node]} != server ]]; then
+          probe=$(live_server) || die "no server with k3s running"
+        fi
         remote "$node" systemctl is-active --quiet k3s || die "$node: k3s is not running"
-        remote "$probe" sudo k3s kubectl wait --for=condition=Ready "node/$node" --timeout=5m >/dev/null ||
+        kube "$probe" wait --for=condition=Ready "node/$node" --timeout=5m >/dev/null ||
           die "$node: not Ready after 5 minutes; stopping here"
         echo "$node: Ready"
       }
 
       cmd_install() {
-        local node=''${1:-} target=''${2:-} answer
+        local node=''${1:-} target=''${2:-} answer server
         check_node "$node"
         [[ -n $target ]] || usage
+        if [[ $node == "$init" ]] && server=$(live_server "$node"); then
+          die "$server already runs this cluster, and $node as \`init\` would start a new one. Set \`init\` to $server in cluster.nix first."
+        fi
         mkdir -p "$tmp/etc/ssh"
         age -d -i "$identity" "$dir/hosts/$node/ssh-key.age" >"$tmp/etc/ssh/ssh_host_ed25519_key"
         cp "$dir/hosts/$node/ssh-key.pub" "$tmp/etc/ssh/ssh_host_ed25519_key.pub"
@@ -139,6 +166,40 @@ in
           tar -C "$tmp" -c etc/ssh | ssh "''${insecure[@]}" "$target" sudo tar -C / --no-same-owner -x
           NIX_SSHOPTS="''${insecure[*]}" nixos-rebuild boot --flake "$root#$cluster-$node" --target-host "$target" --sudo
           echo "$node: installed; restart the container from Proxmox to activate it"
+        fi
+      }
+
+      cmd_remove() {
+        local node=''${1:-} server left
+        check_node "$node"
+        server=$(live_server "$node") || die "no other server with k3s running"
+        if remote "$node" true 2>/dev/null; then
+          echo "$node: cordoning (through $server)"
+          kube "$server" cordon "$node"
+          if [[ -n ''${STORAGE[$node]} ]]; then
+            kube "$server" -n longhorn-system patch "nodes.longhorn.io/$node" --type merge \
+              -p '{"spec":{"allowScheduling":false,"evictionRequested":true}}'
+            while :; do
+              left=$(kube "$server" -n longhorn-system get replicas.longhorn.io \
+                -o "jsonpath={.items[?(@.spec.nodeID==\"$node\")].metadata.name}") || die "cannot list Longhorn replicas"
+              [[ -n $left ]] || break
+              echo "$node: Longhorn is moving $(wc -w <<<"$left") replica(s); volumes with as many replicas as storage nodes cannot move"
+              sleep 30
+            done
+          fi
+          kube "$server" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout=15m
+          remote "$node" sudo systemctl disable --now k3s
+        else
+          echo "$node: unreachable; removing it without draining"
+        fi
+        kube "$server" delete node "$node"
+        if [[ -n ''${STORAGE[$node]} ]]; then
+          kube "$server" -n longhorn-system delete "nodes.longhorn.io/$node" --ignore-not-found ||
+            echo "$node: remove it in the Longhorn UI once Longhorn shows it as down"
+        fi
+        echo "$node: removed from Kubernetes. Now delete it from clusters/$cluster/cluster.nix, then run 'secrets sync' and 'switch all'."
+        if [[ $node == "$init" ]]; then
+          echo "$node is \`init\`: set init to another server, e.g. $server"
         fi
       }
 
@@ -174,6 +235,13 @@ in
 
       cmd_sync() {
         local node file
+        for node in "$dir"/hosts/*/; do
+          node=$(basename "$node")
+          if [[ -d $dir/hosts/$node && ! -v "HOST[$node]" ]]; then
+            rm -rf "''${dir:?}/hosts/$node"
+            echo "$node: no longer in cluster.nix; deleted its keys"
+          fi
+        done
         for node in "''${order[@]}"; do
           mkdir -p "$dir/hosts/$node"
           if [[ ! -f $dir/hosts/$node/ssh-key.age ]]; then
@@ -216,7 +284,8 @@ in
       }
 
       cmd_kubeconfig() {
-        local node=''${1:-$init} out=$HOME/.kube/$cluster.yaml
+        local node=''${1:-} out=$HOME/.kube/$cluster.yaml
+        if [[ -z $node ]]; then node=$(live_server) || die "no server with k3s running"; fi
         check_node "$node"
         [[ ''${ROLE[$node]} == server ]] || die "$node is not a server"
         mkdir -p "$HOME/.kube"
@@ -246,6 +315,7 @@ in
       shift || true
       case $command in
         install) cmd_install "$@" ;;
+        remove) cmd_remove "$@" ;;
         switch | rollback)
           if [[ $command == switch && ''${1:-} == all ]]; then set -- "''${order[@]}"; fi
           (($#)) || usage
