@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${APP_NAMESPACE}
-  labels:
-    app.kubernetes.io/name: ${APP_NAME}

@@ -1,12 +1,5 @@
 result
 result-*
-
 .direnv/
-.devspace/
-
-*.log
-*.tar.gz
-
-.env
-secrets/hosts/*/ssh-key.plaintext
 *.private
+*.age.tmp

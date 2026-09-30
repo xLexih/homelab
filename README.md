@@ -1,179 +1,156 @@
-# NixOS K3s Clusters
+# NixOS k3s clusters
 
-Declarative NixOS configuration for independent K3s clusters on Proxmox VMs
-and NixOS LXC containers.
+Every directory under `clusters/` is one k3s cluster: a `cluster.nix` describing
+its nodes and a `secrets/` directory with age-encrypted keys. The flake picks
+new directories up automatically and produces, per cluster:
 
-The active project manages host configuration and core cluster services:
+- `nixosConfigurations.<cluster>-<node>` for every node,
+- `packages.<cluster>`, a command-line tool to install and operate it.
 
-- K3s with embedded etcd;
-- WireGuard node mesh;
-- Cilium networking;
-- kube-vip load-balancer addresses;
-- Longhorn storage;
-- an optional internal Docker registry;
-- NVIDIA GPU support.
+A node's `roles` decide what it runs:
 
-Application manifests are intentionally outside this project. The old `apps/`
-tree is legacy and is not part of the supported architecture.
+| role      | effect |
+| --------- | ------ |
+| `server`  | k3s control plane and etcd member. Use 1, 3 or 5. |
+| `storage` | keeps Longhorn replicas on `/data`. Longhorn is installed once any node has this role; otherwise volumes use k3s local-path. |
+| `gpu`     | NVIDIA driver and container runtime; the device plugin is installed cluster-wide. |
+| (none)    | k3s agent. Every node, servers included, runs workloads. |
 
-## Requirements
+The design, the network layout and the security model are described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- Nix with flakes enabled;
-- `direnv` for the optional development shell;
-- Proxmox VMs or pre-installed NixOS LXC containers;
-- SSH access to each initial target;
-- an Ed25519 administrative key at `~/.ssh/k3s-admin`.
-
-The flake is pinned to NixOS 26.05. Each cluster also sets
-`cluster.stateVersion = "26.05"` explicitly.
-
-## Repository layout
+## Layout
 
 ```text
-.
-├── config/                 Cluster definitions
-├── lib/                    Cluster factory, helpers, and validation
-├── modules/                Reusable NixOS and core Kubernetes modules
-├── scripts/                Deployment, image, secret, and kubeconfig tools
-├── secrets/                Age-encrypted node and cluster secrets
-├── docs/                   Architecture and operational notes
-├── flake.nix               Outputs, development shell, and checks
-└── flake.lock              Reproducible input revisions
+clusters/<name>/cluster.nix      nodes, roles, addresses
+clusters/<name>/secrets/         admin.pub, k3s-token.age, hosts/<node>/{ssh-key,wireguard}.{age,pub}
+lib/options.nix                  every setting cluster.nix accepts, with descriptions
+lib/default.nix                  validation and per-node system assembly
+lib/cli.nix                      the per-cluster command
+modules/                         NixOS modules: base, network, k3s, storage, gpu, vm, lxc
 ```
 
-## Initial setup
+## Defining a cluster
+
+A single machine:
+
+```nix
+# clusters/lab/cluster.nix
+{
+  stateVersion = "26.05";
+  nodes.lab1 = {
+    roles = ["server"];
+    wgIP = "10.100.0.1";
+    address = "192.168.1.10/24";
+    gateway = "192.168.1.1";
+    disk = "/dev/sda";
+  };
+}
+```
+
+Three servers with replicated storage, two plain workers and a floating LAN
+address for LoadBalancer services:
+
+```nix
+{
+  stateVersion = "26.05";
+  init = "cp1"; # the server that bootstraps etcd; never change it afterwards
+  vip = "192.168.1.50";
+
+  nodes = let
+    node = n: roles: {
+      inherit roles;
+      wgIP = "10.100.0.${toString n}";
+      address = "192.168.1.${toString (10 + n)}/24";
+      gateway = "192.168.1.1";
+      disk = "/dev/sda";
+    } // (if builtins.elem "storage" roles then {dataDisk = "/dev/sdb";} else {});
+  in {
+    cp1 = node 1 ["server" "storage"];
+    cp2 = node 2 ["server" "storage"];
+    cp3 = node 3 ["server" "storage"];
+    w1 = node 4 [];
+    w2 = node 5 ["gpu"];
+  };
+}
+```
+
+Nodes elsewhere join over WireGuard. Give them a different `location` and a
+public `endpoint`; nodes behind NAT without an endpoint are dialled by the
+others. `platform = "lxc"` targets an existing NixOS container whose disks the
+Proxmox host manages (see [docs/lxc.md](docs/lxc.md)). Evaluation rejects
+inconsistent definitions (even server counts, overlapping ranges, storage
+nodes without a data disk, a VIP outside every node's subnet, and so on).
+
+## First installation
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/k3s-admin -N ""
-cp ~/.ssh/k3s-admin.pub secrets/admin.pub
+ssh-keygen -t ed25519 -f ~/.ssh/k3s-admin          # use a passphrase and ssh-agent
+mkdir -p clusters/lab/secrets
+cp ~/.ssh/k3s-admin.pub clusters/lab/secrets/admin.pub
+nix run .#lab -- secrets sync                       # host keys, WireGuard keys, k3s token
+nix flake check
 
-nix run .#secrets-home -- init
-nix run .#secrets-teddysmp -- init
+# init server first, then the rest; a VM's disks are erased after confirmation
+nix run .#lab -- install cp1 root@<installer-ip>
+nix run .#lab -- install cp2 root@<installer-ip>
+```
+
+`install` boots VMs into NixOS with `nixos-anywhere`, putting the node's
+managed SSH host key in place so it can decrypt its secrets on first boot. For
+an LXC node it copies the host key into the running container and stages the
+new system; restart the container from Proxmox afterwards.
+
+## Operating
+
+| command | |
+| --- | --- |
+| `nix run .#lab -- switch all` | deploy every node: init, other servers, agents; stops at the first node that is not `Ready` |
+| `nix run .#lab -- switch cp2 w1` | deploy some nodes |
+| `nix run .#lab -- rollback cp2` | back to the previous generation |
+| `nix run .#lab -- ssh cp2` | SSH with the pinned host key |
+| `nix run .#lab -- kubeconfig` | write `~/.kube/lab.yaml` and print the SSH tunnel command for the API |
+| `nix run .#lab -- image app.tar.gz` | import an image archive on every node |
+| `nix run .#lab -- secrets sync` | create keys for new nodes and re-encrypt all secrets for the current nodes |
+| `nix run .#lab -- secrets edit etcd-s3.age` | edit an encrypted file |
+
+Secrets are decrypted with `$AGE_IDENTITY` (default `~/.ssh/k3s-admin`);
+`admin.pub` may list several keys. The command must run inside this repository
+and stages generated files with `git add`, because the flake only sees tracked
+files.
+
+Adding a node: add it to `cluster.nix`, run `secrets sync`, `install` it, then
+`switch all` so every peer learns its WireGuard key. Removing one: drain and
+delete it in Kubernetes, remove it from `cluster.nix`, `secrets sync`,
+`switch all`, then delete its `secrets/hosts/<node>` directory.
+
+## Backups
+
+Every server keeps etcd snapshots (twice a day, 14 retained) in
+`/var/lib/rancher/k3s/server/db/snapshots`. For an off-site copy set
+`etcdS3 = { endpoint = "…"; bucket = "…"; };` and store the credentials with
+`secrets edit etcd-s3.age`:
+
+```text
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+Restore follows the k3s documentation (`k3s server --cluster-reset
+--cluster-reset-restore-path=…` on the init server). Longhorn volumes need
+their own backup target, configured in Longhorn.
+
+## Checks
+
+```bash
+nix fmt
 nix flake check
 ```
 
-`secrets rekey` re-encrypts the K3s token, WireGuard keys, and encrypted SSH
-host-key backups for the current recipients.
+`flake check` evaluates every node, runs alejandra, deadnix and statix,
+ShellChecks each cluster command, and confirms that a set of broken cluster
+definitions is rejected. CI runs the same on every push.
 
-## VM deployment
-
-`deploy init` is destructive because it uses Disko and `nixos-anywhere`.
-Confirm the node definition and target before you run it.
-
-An initial machine does not yet use the repository-managed SSH host identity.
-Use `--insecure-bootstrap` only for this transition:
-
-```bash
-nix run .#deploy-home -- init master1 \
-  --insecure-bootstrap \
-  -u root \
-  -i ~/.ssh/current-installer-key
-```
-
-After activation, direct root SSH is disabled. Normal deployments use the
-`admin` account and verify the tracked host key:
-
-```bash
-nix run .#deploy-home -- rebuild master1 -i ~/.ssh/k3s-admin
-nix run .#deploy-home -- all -i ~/.ssh/k3s-admin
-```
-
-`deploy all` is sequential. It deploys the init node last and stops if a node
-is unreachable, its host key does not match, or K3s is not active.
-When an older generation does not yet trust `admin` as a Nix user, the deploy
-tool copies the first closure through a temporary passwordless-sudo transport
-and removes it after the copy. For VMs, this transition stages the generation
-without a live switch; reboot the VM to activate it. Later deployments switch
-normally.
-
-## LXC deployment
-
-LXC nodes must already run NixOS. Proxmox owns their kernel, root filesystem,
-devices, and storage mounts. The first rebuild installs the managed SSH host
-identity and stages a boot generation:
-
-```bash
-nix run .#deploy-teddysmp -- rebuild teddysmp \
-  --insecure-bootstrap \
-  -u root \
-  -H <initial-address> \
-  -i ~/.ssh/current-lxc-key
-```
-
-Reboot the container from Proxmox after the command completes. Future
-deployments use the configured `admin` user and managed host key:
-
-```bash
-nix run .#deploy-teddysmp -- rebuild teddysmp -i ~/.ssh/k3s-admin
-```
-
-The Proxmox host must provide cgroup v2 delegation, bpffs, `/dev/kmsg`,
-`/dev/net/tun`, and the kernel modules needed by K3s and Cilium. Longhorn LXC
-nodes also need a dedicated `/data` mount and `iscsi_tcp`. See
-[docs/LXC.conf](docs/LXC.conf) for the current host profile.
-
-## Interactive shell and console
-
-SSH and local console sessions use a shared Bash setup with completion,
-searchable history, compact Kubernetes aliases, and a single-line pastel prompt. The
-prompt uses `∴` for success, `×<code>` for failure, and `λ` for input. Set
-`NO_COLOR=1` to disable color.
-
-All terminal definitions are installed, including xterm, tmux, Kitty, foot,
-and WezTerm support. LXC nodes start a getty on `/dev/console`, so the Proxmox
-console opens an `admin` session without a password prompt. VM consoles keep
-normal authentication.
-
-`comma` is installed on every node and uses the flake-managed nix-index
-database. It can run tools that are not part of the permanent system:
-
-```bash
-, dig example.com
-```
-
-## Commands
-
-Every command is scoped to one cluster.
-
-| Command | Purpose |
-| --- | --- |
-| `nix run .#deploy-home -- rebuild <node> [options]` | Rebuild one home node |
-| `nix run .#deploy-home -- all [options]` | Rebuild all home nodes sequentially |
-| `nix run .#deploy-home -- rollback <node> [options]` | Roll back one node |
-| `nix run .#secrets-home -- init` | Create missing encrypted secrets |
-| `nix run .#secrets-home -- rekey` | Update all secret recipients |
-| `nix run .#image-home -- add <archive> [node\|all] [key]` | Import an image on one or all nodes |
-| `nix run .#config-home -- <node> [key]` | Write `~/.kube/home.yaml` |
-
-The kubeconfig command does not replace `~/.kube/config`. Start the printed
-SSH tunnel, then use the scoped file:
-
-```bash
-KUBECONFIG=~/.kube/home.yaml kubectl get nodes
-```
-
-## Development and checks
-
-```bash
-direnv allow
-nix fmt
-nix flake check --show-trace
-```
-
-The flake check evaluates every NixOS configuration, checks Nix formatting,
-runs Statix and Deadnix, tests invalid cluster definitions, and runs ShellCheck
-against the generated command-line tools. GitHub Actions runs the same check
-for pushes and pull requests.
-
-## Adding a cluster
-
-1. Copy the nearest file under `config/example/`.
-2. Give the cluster and every node a globally unique name.
-3. Set the explicit `stateVersion`.
-4. Add one `mkCluster` call in `flake.nix`.
-5. Merge its outputs with `mergeUnique`.
-6. Generate its secrets and run `nix flake check`.
-
-Cluster validation rejects invalid locations, missing node networks, duplicate
-or overlapping pod ranges, network-range overlap, invalid load-balancer pools,
-even-sized HA control planes, and unsupported storage combinations.
+Upgrading k3s or NixOS means bumping `flake.lock` and running `switch all`.
+Chart versions and hashes are pinned in `modules/k3s.nix`, `storage.nix` and
+`gpu.nix`; move Longhorn one minor version at a time.

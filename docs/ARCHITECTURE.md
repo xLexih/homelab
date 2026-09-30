@@ -1,143 +1,103 @@
 # Architecture
 
-## Scope
+## Evaluation
 
-This repository configures NixOS hosts and the Kubernetes components needed by
-each cluster. Application deployment is outside its scope. The removed
-`apps/` tree is legacy.
+`flake.nix` reads every directory in `clusters/`. For each one, `lib/default.nix`
 
-Two independent clusters are currently produced:
+1. type-checks `cluster.nix` against `lib/options.nix`,
+2. applies the cross-field rules in `validate` and refuses to evaluate anything
+   if one fails,
+3. builds one NixOS system per node from `modules/`, passing the checked
+   cluster and the node as module arguments,
+4. builds the cluster command from `lib/cli.nix`.
 
-```text
-home
-├── master1: init, control plane, worker, storage, NVIDIA GPU
-├── master2: control plane, worker, storage
-└── master3: control plane, worker, storage
+Modules never look at other clusters, and outputs are prefixed with the
+cluster name, so clusters are independent. The only shared inputs are the
+pinned nixpkgs, disko and agenix.
 
-teddysmp
-└── teddysmp: LXC init, control plane, worker
-```
+Roles are plain module conditions: `storage.nix` is active on every node once
+some node has `storage` (clients everywhere, replicas on storage nodes, the
+chart on servers); `gpu.nix` installs the driver on `gpu` nodes and the device
+plugin on servers; `k3s.nix` picks server or agent from `server`.
 
-The clusters do not share K3s tokens, WireGuard meshes, service ranges, pod
-ranges, or kubeconfigs.
-
-## Evaluation model
-
-`flake.nix` calls `lib/mkCluster.nix` for each cluster definition:
-
-1. Evaluate the typed cluster options.
-2. Run cross-field validation from `lib/helpers.nix`.
-3. Generate one `nixosSystem` for each node.
-4. Generate cluster-scoped command-line packages.
-5. Reject duplicate output names when cluster outputs are merged.
-
-The flake lock pins Nixpkgs, Disko, Agenix, and the Nix index. The NixOS state
-version is explicit in each cluster and does not follow Nixpkgs automatically.
-
-## Node networking
-
-Each cluster uses a full-mesh WireGuard interface named `wg0`. A peer permits
-the peer's WireGuard address and pod CIDR. Explicit routes send remote pod
-traffic through that peer.
-
-Endpoint selection is location-aware:
-
-1. Nodes in the same location use the peer LAN address when available.
-2. Other locations use `wgEndpoint`, then `endpoint`, then the cluster domain.
-3. `endpointPort` represents a public forwarded WireGuard port.
-4. `wgPort` remains the node's local listen port.
-
-K3s advertises and binds to the node WireGuard address. Control-plane and pod
-traffic therefore use the encrypted mesh.
-
-The LAN firewall exposes only the configured SSH and WireGuard ports, plus TCP
-80 and 443 when the cluster load balancer is enabled. A cluster can also list
-specific `network.nodePorts`; the LAN firewall exposes only those ports. The
-Kubernetes API is not exposed on the LAN firewall.
-
-## K3s control plane
-
-The init server starts K3s with `--cluster-init`. Other servers join through
-the init server's WireGuard address. K3s uses embedded etcd for control-plane
-state.
-
-Non-init masters run HAProxy on `127.0.0.1:6443`. It balances local Kubernetes
-client traffic across all master WireGuard addresses. The init node uses its
-local K3s API directly.
-
-Automated multi-node deployment is sequential. Non-init nodes are deployed
-first and the init node is deployed last. Deployment stops when SSH identity
-verification or the post-deployment K3s health check fails.
-
-## Cilium
-
-K3s disables Flannel, kube-proxy, and the built-in network policy controller.
-Cilium provides Kubernetes IPAM, native routing over WireGuard pod routes,
-kube-proxy replacement, BPF masquerading, load-balancer data paths, and
-network policy.
-
-The operator runs with two replicas on an HA cluster and one replica on a
-single-node cluster. A periodic host service waits for Cilium's NAT chain
-before it adds the WireGuard masquerade compatibility rule.
-
-## Load balancers
-
-When enabled, kube-vip runs on control-plane nodes and announces service
-addresses on the LAN with ARP. Cilium load-balancer pools are generated per
-location and select services by this label:
+## Network
 
 ```text
-loadbalancer.<location>.enabled=true
+             LAN (SSH, WireGuard UDP, VRRP)
+   +------------+------------+------------+
+   |            |            |            |
+ node A ------ node B ------ node C       VIP (keepalived) on one healthy node
+   \___________ wg0 full mesh ___________/
+      k3s API, etcd, kubelet, flannel VXLAN
 ```
 
-Leader election uses a 15-second lease, 10-second renewal deadline, and
-2-second retry period. Actual failover time must be measured during a failure
-test; it is bounded by lease expiry.
+- Each node has a `wgIP` on `wg0`, a WireGuard full mesh. Peers in the same
+  `location` connect over the LAN, others through `endpoint`. Each peer only
+  routes its own /32.
+- k3s uses the WireGuard address as node IP, binds the API and supervisor to
+  it and runs flannel VXLAN over `wg0`. Pod routes therefore need no
+  per-node configuration and all cluster traffic is encrypted.
+- kube-proxy (iptables), network policy (kube-router) and metrics-server are
+  the components embedded in k3s. NodePorts only listen on the mesh.
+- Services of type LoadBalancer use k3s ServiceLB and are reachable on every
+  node's LAN address. With `vip` set, keepalived moves that address to a node
+  whose k3s is running; VRRP uses unicast between nodes on the VIP's subnet
+  and the router id is the VIP's last octet.
+- The LAN firewall allows SSH, the WireGuard port and VRRP. `wg0`, `cni0` and
+  `flannel.1` are trusted. ServiceLB and hostPort traffic is DNATed before the
+  input chain.
 
-## Core component reconciliation
+## Control plane
 
-The init master deploys Cilium, kube-vip, Longhorn, the optional registry, and
-the NVIDIA device plugin with Helm systemd services.
+The `init` server starts etcd with `--cluster-init` (also for a single server,
+so snapshots work everywhere). Other nodes register through the init server's
+WireGuard address. After registration servers use the etcd member list and
+agents use the k3s client load balancer, so a missing init server only blocks
+new nodes from joining; point `init` at another server if it is gone for good.
 
-Each service waits for the API and Helm repository setup, then runs
-`helm upgrade --install` with atomic rollback, cleanup, workload waits, and
-timeouts. There are no persistent success marker files. A failed rollout does
-not become a permanent false success.
+Servers run with `--secrets-encryption` and a PodSecurity admission
+configuration enforcing `baseline` (warning and auditing `restricted`) outside
+`kube-system` and `longhorn-system`. Namespaces that need privileged pods opt
+out with the label `pod-security.kubernetes.io/enforce=privileged`.
 
-## Storage
+## Add-ons
 
-The home cluster uses Longhorn with two replicas and dedicated `/data`
-filesystems. TeddySMP uses the K3s local-path provisioner.
+CoreDNS (two replicas spread across nodes, replacing the single k3s replica),
+Longhorn and the NVIDIA device plugin are Helm charts fetched at build time
+with pinned hashes and written to every server's manifest directory. The k3s
+helm-controller installs and upgrades them from whichever server is alive, and
+nothing is downloaded at boot besides container images. The charts use
+`failurePolicy: abort`: a failed upgrade stays failed for a human to look at
+instead of being uninstalled and reinstalled.
 
-Disk selection and layout are explicit in node configuration. VM installation
-uses Disko. LXC storage is mounted by Proxmox and `storage.disks` must remain
-empty.
+Longhorn stores replicas on `/data` of storage nodes only
+(`createDefaultDiskLabeledNodes`), keeps `min(3, storage nodes)` replicas and
+deletes pods of a dead node so their volumes can attach elsewhere.
 
-## Registry
+## Nodes
 
-The optional Docker Distribution registry is a ClusterIP service. Longhorn
-clusters use an RWX storage class; a single local-storage node uses RWO.
-
-The registry remains plain HTTP inside the cluster. A Cilium policy restricts
-registry ingress to cluster nodes and pods in the registry namespace. Image
-deletion in the optional UI is disabled unless `registry.allowDelete = true`.
+- VMs are partitioned by disko: EFI and LVM on `disk` (a 10G etcd volume and
+  root), and `/data` on `dataDisk`. Each VM gets the etcd volume so it can
+  become a server later.
+- LXC containers get their kernel, devices and mounts from Proxmox. A preflight
+  unit checks them before k3s starts (see `lxc.md`).
+- Nodes carry no documentation, default packages or GUI; the Nix store is
+  garbage-collected weekly (14 days).
 
 ## Identity and secrets
 
-Agenix decrypts node secrets with the managed Ed25519 SSH host identity.
-Encrypted data includes the K3s token, WireGuard keys, and recoverable managed
-SSH host keys.
+Each node has a managed SSH host key, generated by `secrets sync` and stored
+encrypted for the admin keys. `install` places it on the node, it pins the
+node in the generated `known_hosts`, and agenix uses it to decrypt the node's
+secrets:
 
-Normal management commands use a generated `known_hosts` file derived from
-the tracked host public keys. An explicit `--insecure-bootstrap` mode exists
-only for the first transition to the managed identity.
+| file | readable by |
+| --- | --- |
+| `k3s-token.age` | admin, every node of the cluster |
+| `etcd-s3.age` | admin, servers |
+| `hosts/<node>/wireguard.age` | admin, that node |
+| `hosts/<node>/ssh-key.age` | admin |
 
-Direct root SSH is disabled after activation. The `admin` account has the
-tracked administrative key and passwordless sudo for declarative deployment.
-
-## Validation boundaries
-
-Evaluation rejects invalid init roles, addresses, locations, network ranges,
-load-balancer pools, storage combinations, LXC disks, even-sized HA control
-planes, and duplicate node names across clusters. Runtime preflight services
-check LXC cgroups, bpffs, device access, and storage mounts.
+Only the `admin` user may log in over SSH, with keys from `admin.pub`; it has
+passwordless sudo, which deployment needs. Root and passwords are disabled.
+Protect the admin private key with a passphrase: it is root on every node.
