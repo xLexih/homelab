@@ -1,4 +1,18 @@
+<div align="center">
+
 # NixOS k3s clusters
+
+**Declarative NixOS configuration for independent k3s clusters**
+
+[![NixOS](https://img.shields.io/badge/NixOS-26.05-5277C3?logo=nixos&logoColor=white)](https://nixos.org)
+[![K3s](https://img.shields.io/badge/K3s-1.35-ffc61c?logo=k3s)](https://k3s.io)
+[![WireGuard](https://img.shields.io/badge/WireGuard-mesh-88171a?logo=wireguard&logoColor=white)](https://www.wireguard.com)
+[![MetalLB](https://img.shields.io/badge/MetalLB-0.16.1-aa0000)](https://metallb.io)
+[![Longhorn](https://img.shields.io/badge/Longhorn-1.12.1-431439)](https://longhorn.io)
+
+</div>
+
+---
 
 Every directory under `clusters/` is one k3s cluster: a `cluster.nix` describing
 its nodes and a `secrets/` directory with age-encrypted keys. The flake picks
@@ -280,3 +294,9 @@ Chart versions and hashes are pinned in `modules/k3s.nix`, `loadbalancer.nix`,
 test runs without internet access, so when a chart's image changes, update
 the matching image digest in `tests/default.nix` as well
 (`nix run nixpkgs#nix-prefetch-docker -- --image-name … --image-tag …`).
+
+<div align="right">
+
+Written by spark-1.3
+
+</div>
