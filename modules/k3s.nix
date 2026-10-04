@@ -1,8 +1,7 @@
-# k3s server/agent. Networking, network policy and metrics are the components
-# embedded in k3s (flannel over wg0, kube-proxy, kube-router policy,
-# metrics-server). Every server carries the same add-on charts in its manifest
-# directory, so any live server reconciles them; charts are fetched at build
-# time and served from the node.
+# k3s server/agent without its own networking: Cilium (cilium.nix) provides
+# the pod network, Services and network policy. Every server carries the same
+# add-on charts in its manifest directory, so any live server reconciles
+# them; charts are fetched at build time and served from the node.
 {
   lib,
   pkgs,
@@ -49,11 +48,26 @@
             warn = "restricted";
             warn-version = "latest";
           };
-          exemptions.namespaces = ["kube-system" "longhorn-system" "metallb-system"];
+          exemptions.namespaces = ["kube-system" "longhorn-system"];
         };
       }
     ];
   };
+
+  # The k3s module links manifests into place but never removes the links of
+  # ones dropped from the configuration, and k3s keeps applying those (a
+  # removed chart comes back on the next k3s start). Its resources stay
+  # either way: `kubectl delete helmchart <name>` uninstalls a chart.
+  manifests = config.services.k3s.autoDeployCharts // config.services.k3s.manifests;
+  kept = map (m: m.target) (lib.attrValues (lib.filterAttrs (_: m: m.enable) manifests));
+  pruneManifests = pkgs.writeShellScript "k3s-prune-manifests" ''
+    for f in /var/lib/rancher/k3s/server/manifests/*; do
+      [[ -L $f && $(readlink "$f") == /nix/store/* ]] || continue
+      case " ${toString kept} " in *" ''${f##*/} "*) continue ;; esac
+      echo "removing ''${f##*/}: no longer in the configuration"
+      rm -f "$f"
+    done
+  '';
 in {
   assertions = [
     {
@@ -74,6 +88,13 @@ in {
     # glibc reorders /etc/hosts answers by address prefix (RFC 6724); Go's own
     # resolver keeps the file order.
     environment.GODEBUG = "netdns=go";
+    serviceConfig.ExecStartPre = lib.optional isServer "${pruneManifests}";
+    # containerd reads registries.yaml only when k3s starts
+    restartTriggers = lib.optional (cluster.registries != {}) config.environment.etc."rancher/k3s/registries.yaml".source;
+  };
+
+  environment.etc."rancher/k3s/registries.yaml" = lib.mkIf (cluster.registries != {}) {
+    text = builtins.toJSON cluster.registries;
   };
 
   networking.extraHosts = lib.concatMapStrings (n: "${n.wgIP} ${joinName}\n") joinVia;
@@ -96,13 +117,10 @@ in {
       ++ lib.optional (lib.elem "gpu" node.roles) "nvidia.com/gpu.present=true";
     gracefulNodeShutdown.enable = true;
     environmentFile = lib.mkIf (isServer && s3 != null) config.age.secrets.etcd-s3.path;
-    disable = lib.optionals isServer (["traefik" "coredns"] ++ lib.optional hasStorage "local-storage");
+    disable = lib.optionals isServer (["traefik" "coredns" "servicelb"] ++ lib.optional hasStorage "local-storage");
 
     extraFlags =
       [
-        "--flannel-iface=wg0"
-        # NodePorts stay on the mesh; publish services with type LoadBalancer.
-        "--kube-proxy-arg=nodeport-addresses=${net.wgCIDR}"
         # Memory and CPU pods cannot take from the OS and k3s itself.
         "--kubelet-arg=system-reserved=${
           if isServer
@@ -111,6 +129,9 @@ in {
         }"
       ]
       ++ lib.optionals isServer [
+        "--flannel-backend=none"
+        "--disable-network-policy"
+        "--disable-kube-proxy"
         "--bind-address=${node.wgIP}"
         "--advertise-address=${node.wgIP}"
         "--tls-san=127.0.0.1"

@@ -14,6 +14,7 @@
     inputs.agenix.nixosModules.default
     ./network.nix
     ./k3s.nix
+    ./cilium.nix
     ./network-policy.nix
     ./storage.nix
     ./gpu.nix
@@ -72,6 +73,16 @@
       options = "--delete-older-than 14d";
     };
   };
+
+  # Prompt from ~/dotfiles: [user:path]$ locally, [user@host:path]$ over SSH.
+  programs.bash.promptInit = ''
+    if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ] || [ -n "$SSH_CONNECTION" ]; then
+      # SSH
+      export PS1='\[\033[38;5;241m\][\[\033[38;5;212m\]\u@\h\[\033[38;5;241m\]:\[\033[38;5;141m\]\w\[\033[38;5;241m\]]\[\033[38;5;212m\]\$\[\033[0m\] '
+    else # LOCAL
+      export PS1='\[\033[38;5;241m\][\[\033[38;5;141m\]\u\[\033[38;5;241m\]:\[\033[38;5;84m\]\w\[\033[38;5;241m\]]\[\033[38;5;212m\]\$\[\033[0m\] '
+    fi
+  '';
 
   documentation.enable = false;
   environment.defaultPackages = [];

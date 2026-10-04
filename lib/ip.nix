@@ -44,6 +44,9 @@ lib: rec {
   in
     sa.first <= sb.last && sb.first <= sa.last;
 
+  # nodes whose LAN subnet (`address`) contains addr: they can answer ARP for it
+  lanNodes = nodes: addr: builtins.filter (n: n.address != null && within n.address addr) nodes;
+
   # nth address of a network: (host "10.43.0.0/16" 10) == "10.43.0.10"
   host = cidr: n: fromInt ((span cidr).first + n);
 }

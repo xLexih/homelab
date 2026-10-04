@@ -3,6 +3,7 @@
   stateVersion = "26.05";
   k3sVersion = "1.35";
   loadBalancerIPs = ["192.168.2.150"];
+  clusterId = 2;
 
   network = {
     serviceCIDR = "10.44.0.0/16";

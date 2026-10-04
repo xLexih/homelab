@@ -23,9 +23,8 @@ in {
     loader.systemd-boot.enable = true;
     loader.efi.canTouchEfiVariables = true;
     initrd.availableKernelModules = ["ahci" "nvme" "sd_mod" "uas" "usb_storage" "virtio_blk" "virtio_pci" "virtio_scsi" "xhci_pci"];
-    kernelModules = ["br_netfilter" "overlay"];
+    kernelModules = ["overlay"];
     kernel.sysctl = {
-      "net.bridge.bridge-nf-call-iptables" = 1;
       "fs.inotify.max_user_instances" = 8192;
       "fs.inotify.max_user_watches" = 524288;
     };

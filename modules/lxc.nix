@@ -33,8 +33,6 @@ in {
     # The Proxmox console (pct console, web UI) logs in as admin: whoever can
     # reach it already controls the host.
     getty.autologinUser = "admin";
-    # nf_conntrack_max is global; leave it to the host instead of failing.
-    k3s.extraFlags = ["--kube-proxy-arg=conntrack-max-per-core=0"];
   };
 
   systemd.suppressedSystemUnits = ["sys-kernel-debug.mount"];
@@ -57,7 +55,8 @@ in {
         need() { missing+=("$*"); }
         [[ $(stat -fc %T /sys/fs/cgroup) == cgroup2fs ]] || need "cgroup v2 (Proxmox 7 or later)"
         [[ -c /dev/kmsg ]] || need "/dev/kmsg bind-mounted into the container"
-        for m in overlay br_netfilter vxlan wireguard ${lib.optionalString (lib.elem "storage" node.roles) "iscsi_tcp"}; do
+        [[ $(stat -fc %T /sys/fs/bpf 2>/dev/null) == bpf_fs ]] || need "/sys/fs/bpf bind-mounted into the container (Cilium)"
+        for m in overlay geneve wireguard ${lib.optionalString (lib.elem "storage" node.roles) "iscsi_tcp"}; do
           [[ -d /sys/module/$m ]] || need "kernel module $m loaded on the host"
         done
         ${lib.concatStrings (lib.mapAttrsToList (key: value: ''

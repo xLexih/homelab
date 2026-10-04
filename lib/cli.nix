@@ -71,6 +71,8 @@ in
                                      cluster.nix, secrets sync, switch all
         rollback <node>              activate the previous generation
         ssh <node> [command]
+        status                       nodes, and whether every chart is installed;
+                                     fails and shows the log if one is failing
         kubeconfig [node]            write ~/.kube/$cluster.yaml, print the tunnel
         image <archive> [node]...    import an image tarball (default: all nodes)
         secrets sync                 create missing keys, re-encrypt everything
@@ -326,6 +328,42 @@ in
         echo
       }
 
+      # Charts are installed by the helm-controller after a switch has
+      # finished: its Job helm-install-<chart> holds the outcome.
+      cmd_status() {
+        local server chart charts jobs job ok failed state bad=0
+        server=$(live_server) || die "no server with k3s running"
+        kube "$server" get nodes -o wide
+        echo
+        jobs=$(kube "$server" -n kube-system get jobs --no-headers \
+          -o custom-columns=NAME:.metadata.name,OK:.status.succeeded,FAILED:.status.failed)
+        charts=$(kube "$server" -n kube-system get helmcharts -o 'jsonpath={.items[*].metadata.name}')
+        declare -A OK FAILED
+        while read -r job ok failed; do
+          [[ -n $job ]] || continue
+          OK[$job]=$ok
+          FAILED[$job]=$failed
+        done <<<"$jobs"
+        for chart in $charts; do
+          job=helm-install-$chart
+          if [[ ! -v "OK[$job]" ]]; then
+            state=waiting
+          elif [[ ''${OK[$job]} != "<none>" ]]; then
+            state=installed
+          elif [[ ''${FAILED[$job]} != "<none>" ]]; then
+            state=failing
+          else
+            state=installing
+          fi
+          printf '%-24s %s\n' "$chart" "$state"
+          if [[ $state == failing ]]; then
+            bad=1
+            kube "$server" -n kube-system logs "job/$job" --tail=20 | sed 's/^/    /' || true
+          fi
+        done
+        return "$bad"
+      }
+
       cmd_image() {
         local file=''${1:-} node
         [[ -f $file ]] || usage
@@ -359,6 +397,7 @@ in
           remote "$node" "$@"
           ;;
         kubeconfig) cmd_kubeconfig "$@" ;;
+        status) cmd_status ;;
         image) cmd_image "$@" ;;
         secrets)
           repo

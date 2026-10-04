@@ -148,18 +148,64 @@ in {
         be installed, which would start a second cluster.
       '';
     };
+    clusterId = mkOption {
+      type = types.nullOr (types.ints.between 1 255);
+      default = null;
+      description = ''
+        Cilium cluster ID, unique among clusters that will ever be connected
+        with ClusterMesh. Set it before workloads run: changing it later
+        means restarting every pod.
+      '';
+    };
     loadBalancerIPs = mkOption {
       type = types.listOf (types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2}|-([0-9]{1,3}\\.){3}[0-9]{1,3})?");
       default = [];
       example = ["192.168.1.50" "192.168.1.60-192.168.1.69" "192.168.1.80/29"];
       description = ''
-        LAN addresses for services of type LoadBalancer: single addresses,
-        ranges or CIDRs, each inside the subnet of some nodes' `address`.
-        Every service gets its own address (MetalLB, layer 2), announced by
-        one of those nodes and moved to another when it fails. Pin one with
-        the annotation `metallb.io/loadBalancerIPs`.
-        Empty: k3s ServiceLB publishes services on every node's address, one
-        service per port.
+        Addresses for services of type LoadBalancer: single addresses, ranges
+        or CIDRs. Every service gets its own address (Cilium LB IPAM). An
+        entry inside the subnet of some nodes' `address` is announced over
+        ARP by one of those nodes, which another replaces when it fails;
+        those nodes must share one `location`. Entries outside every subnet
+        need `bgp`. Pin an address with the annotation `lbipam.cilium.io/ips`.
+        Empty (and no `bgp`): services get the addresses of the nodes.
+      '';
+    };
+    bgp = mkOption {
+      type = types.nullOr (types.submodule {
+        options = {
+          asn = mkOption {
+            type = types.ints.between 1 4294967295;
+            description = "AS number of the cluster's nodes.";
+          };
+          peers = mkOption {
+            type = types.listOf (types.submodule {
+              options = {
+                address = mkOption {type = ipv4;};
+                asn = mkOption {type = types.ints.between 1 4294967295;};
+              };
+            });
+            description = "Routers; each peers with the nodes whose `address` subnet contains it.";
+          };
+        };
+      });
+      default = null;
+      description = ''
+        Advertise LoadBalancer addresses to routers over BGP (Cilium BGP
+        control plane), in addition to ARP. Off when null.
+      '';
+    };
+    registries = mkOption {
+      type = types.attrsOf types.anything;
+      default = {};
+      example = {
+        mirrors."registry.lan:5000".endpoint = ["http://192.168.1.51:5000"];
+      };
+      description = ''
+        Written to every node as k3s' registries.yaml (mirrors, credentials,
+        TLS); see https://docs.k3s.io/installation/private-registry. Nodes
+        don't resolve cluster DNS, so point mirrors at LAN addresses, e.g. a
+        registry's LoadBalancer address.
       '';
     };
     gpuSharing = mkOption {
@@ -200,6 +246,11 @@ in {
       wgPort = mkOption {
         type = types.port;
         default = 51820;
+      };
+      wgMTU = mkOption {
+        type = types.ints.between 1280 1500;
+        default = 1420;
+        description = "MTU of wg0. Lower it when a link between locations has a smaller MTU (PPPoE: 1412).";
       };
       nameservers = mkOption {
         type = types.listOf ipv4;

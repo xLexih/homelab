@@ -4,8 +4,11 @@
   k3sVersion = "1.35";
   stateVersion = "26.05";
   init = "master1";
+  clusterId = 1;
   loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
   gpuSharing = 3;
+  # images keep their in-cluster name; nodes pull through registry-lb
+  registries.mirrors."registry-docker-registry.registry.svc.cluster.local:5000".endpoint = ["http://192.168.2.151:5000"];
 
   nodes = {
     master1 = {

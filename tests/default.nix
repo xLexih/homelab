@@ -22,6 +22,7 @@
     '';
 
   # Chart images; the VMs have no internet. Update together with the charts.
+  # Images are imported by tag, so the test turns off Cilium's digest pins.
   images = map pkgs.dockerTools.pullImage [
     {
       imageName = "coredns/coredns";
@@ -30,25 +31,34 @@
       finalImageTag = "1.14.7";
     }
     {
-      imageName = "quay.io/metallb/controller";
-      imageDigest = "sha256:f51ab515de9ccd20dc3dccb093e48df8adddac019326c456f449e55ba91b6420";
-      hash = "sha256-xMUYC0LdL0WR3lJHAfRcd70v4AXr3xW3IJaaYm1P9fo=";
-      finalImageTag = "v0.16.1";
+      imageName = "quay.io/cilium/cilium";
+      imageDigest = "sha256:2939231d0d3e3ebddcd80fffa168b7ddcc78fdf0dc864d1c8c126ff523c54f01";
+      hash = "sha256-EiI6gDR61JdWt1grZkCe+IAVSTFDeapW9c+kH1Cl2+8=";
+      finalImageTag = "v1.20.2";
     }
     {
-      imageName = "quay.io/metallb/speaker";
-      imageDigest = "sha256:16561e96531e1852d5c229ad7fae6e994dcfa983ff7f4de6b6208b34a4e2ddbc";
-      hash = "sha256-8Zt86xIoSeF3TkftWQjKioIDQOB7KTArbzDTU40gxG0=";
-      finalImageTag = "v0.16.1";
+      imageName = "quay.io/cilium/operator-generic";
+      imageDigest = "sha256:64d8798350e8569b8e7622563fed6e44dce2625f311e4651b774816516c744fc";
+      hash = "sha256-l5Cl2H/vpyd8vrS18Ia/kvdEPlWxNkT0ES0tHKJDzms=";
+      finalImageTag = "v1.20.2";
     }
   ];
 
+  # /cgi-bin/ip answers "<client address> <pod name>"
   web = pkgs.dockerTools.buildImage {
     name = "web";
     tag = "test";
     copyToRoot = [pkgs.busybox];
-    extraCommands = "mkdir srv && echo hello > srv/index.html";
-    config.Cmd = ["httpd" "-f" "-p" "8080" "-h" "/srv"];
+    extraCommands = ''
+      mkdir -p srv/cgi-bin
+      echo hello > srv/index.html
+      cat > srv/cgi-bin/ip <<'EOF'
+      #!/bin/sh
+      printf 'Content-Type: text/plain\r\n\r\n%s %s\n' "$REMOTE_ADDR" "$(hostname)"
+      EOF
+      chmod +x srv/cgi-bin/ip
+    '';
+    config.Cmd = ["httpd" "-f" "-p" "0.0.0.0:8080" "-h" "/srv"];
   };
 
   json = name: items:
@@ -72,9 +82,17 @@
         namespace = "web";
       };
       spec = {
+        # on two nodes, so some requests cross from the announcing node
+        replicas = 2;
         selector.matchLabels = labels;
         template = {
           metadata = {inherit labels;};
+          spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution = [
+            {
+              topologyKey = "kubernetes.io/hostname";
+              labelSelector.matchLabels = labels;
+            }
+          ];
           spec.containers = [
             {
               name = "web";
@@ -132,8 +150,8 @@
     virtualisation = {
       memorySize =
         if lib.elem "server" node.roles
-        then 1280
-        else 1024;
+        then 1536
+        else 1280;
       diskSize = 4096;
       cores = 2;
     };
@@ -145,6 +163,12 @@
     };
     age.identityPaths = lib.mkForce ["${hostKey node.name}"];
     services.k3s.images = [config.services.k3s.package.airgap-images] ++ images;
+    services.k3s.autoDeployCharts.cilium = lib.mkIf (lib.elem "server" node.roles) {
+      extraFieldDefinitions.spec.set = {
+        "image.useDigest" = "false";
+        "operator.image.useDigest" = "false";
+      };
+    };
     environment.systemPackages = [pkgs.curl];
     # the test framework's console password; the backdoor shell does not need it
     users.users.root.hashedPasswordFile = lib.mkForce null;
@@ -165,7 +189,24 @@ in
               prefixLength = 24;
             }
           ];
-          environment.systemPackages = [cli pkgs.curl];
+          environment.systemPackages = [cli pkgs.curl pkgs.frr];
+          # the cluster's BGP peer; learns routes without installing them,
+          # so curl below still goes through the ARP announcement
+          services.frr = {
+            bgpd = {
+              enable = true;
+              extraOptions = ["--no_kernel"];
+            };
+            config = ''
+              router bgp 65000
+                bgp router-id 10.0.0.250
+                no bgp ebgp-requires-policy
+                neighbor cluster peer-group
+                neighbor cluster remote-as 65100
+                bgp listen range 10.0.0.0/24 peer-group cluster
+            '';
+          };
+          networking.firewall.allowedTCPPorts = [179];
         };
       };
 
@@ -196,6 +237,7 @@ in
           deployer.succeed("vmtest kubeconfig")
           deployer.succeed("grep -q 'server: https://127.0.0.1:6443' /root/.kube/vmtest.yaml")
           deployer.succeed("vmtest image ${web} s2 s3 a1")
+          deployer.wait_until_succeeds("vmtest status | grep -E '^cilium +installed$'", timeout=300)
 
       with subtest("a new namespace is closed until a policy opens it"):
           s2.succeed("k3s kubectl apply -f ${webApp}")
@@ -209,8 +251,31 @@ in
           deployer.fail("curl -sf --max-time 5 http://10.0.0.200/")
           s2.succeed("k3s kubectl apply -f ${allowWeb}")
           deployer.wait_until_succeeds("curl -sf --max-time 5 http://10.0.0.200/ | grep -x hello", timeout=60)
+
+      with subtest("pods see the client's address through the LoadBalancer"):
+          backends = set()
+          for _ in range(20):
+              client, pod = deployer.succeed("curl -sf --max-time 5 http://10.0.0.200/cgi-bin/ip").split()
+              assert client == "10.0.0.250", f"{pod} saw {client}"
+              backends.add(pod)
+          # one backend is not on the announcing node: that request took DSR
+          assert len(backends) == 2, backends
+
+      with subtest("BGP advertises the address to the router"):
+          deployer.wait_until_succeeds("vtysh -c 'show ip bgp' | grep -F 10.0.0.200/32", timeout=180)
+
+      with subtest("without default-deny, pods see each other's addresses and NodePorts stay on the mesh"):
           s2.succeed("k3s kubectl label namespace web default-deny=off")
           s2.wait_until_fails("k3s kubectl -n web get networkpolicy default-deny", timeout=60)
+          (a, a_ip), (_, b_ip) = [
+              (p["metadata"]["name"], p["status"]["podIP"])
+              for p in json.loads(s2.succeed("k3s kubectl -n web get pods -l app=web -o json"))["items"]
+          ]
+          seen = s2.wait_until_succeeds(f"k3s kubectl -n web exec {a} -- wget -qO- http://{b_ip}:8080/cgi-bin/ip", timeout=60).split()[0]
+          assert seen == a_ip, f"saw {seen} instead of {a_ip}"
+          port = s2.succeed("k3s kubectl -n web get svc web -o jsonpath='{.spec.ports[0].nodePort}'").strip()
+          s3.wait_until_succeeds(f"curl -sf --max-time 5 http://10.100.0.2:{port}/ | grep -x hello", timeout=60)
+          deployer.fail(f"curl -sf --max-time 5 http://10.0.0.2:{port}/")
 
       with subtest("remove drains and deletes a live agent"):
           deployer.succeed("vmtest remove a1")

@@ -2,11 +2,11 @@
 # ones gets a NetworkPolicy "default-deny": its pods accept no connections and
 # can only open DNS queries to CoreDNS. Allow what an app needs with its own
 # NetworkPolicy; label a namespace `default-deny=off` to leave it open.
-# See "Network policy" in README.md.
+# See "Network policy" in docs/CONFIGURATION.md.
 #
 # Kubernetes has no cluster-wide NetworkPolicy, so every server watches the
 # namespaces and applies the policy itself (idempotent, so several servers can
-# do it at once). kube-router, embedded in k3s, enforces it.
+# do it at once). Cilium enforces it.
 {
   lib,
   pkgs,
@@ -14,7 +14,7 @@
   node,
   ...
 }: let
-  exempt = ["kube-system" "kube-public" "kube-node-lease" "longhorn-system" "metallb-system"];
+  exempt = ["kube-system" "kube-public" "kube-node-lease" "longhorn-system"];
   dns = [
     {
       protocol = "UDP";

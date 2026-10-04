@@ -48,8 +48,11 @@
         (require (lib.unique wgIPs == wgIPs) "wgIP values must be unique")
         (require (!(ip.overlaps net.podCIDR net.serviceCIDR || ip.overlaps net.podCIDR net.wgCIDR || ip.overlaps net.serviceCIDR net.wgCIDR)) "network.podCIDR, serviceCIDR and wgCIDR must not overlap")
         (require (lib.all (e: (ip.span e).first <= (ip.span e).last) lbs) "loadBalancerIPs ranges must be written low-high")
-        (require (lib.all (e: lib.any (n: n.address != null && ip.within n.address e) nodes) lbs) "every loadBalancerIPs entry must be inside the `address` subnet of at least one node")
+        (require (c.bgp != null || lib.all (e: ip.lanNodes nodes e != []) lbs) "every loadBalancerIPs entry must be inside the `address` subnet of at least one node (or set `bgp`)")
+        (require (lib.all (e: builtins.length (lib.unique (map (n: n.location) (ip.lanNodes nodes e))) <= 1) lbs) "the nodes on the subnet of a loadBalancerIPs entry must share one `location`")
         (require (!lbClash) "loadBalancerIPs entries must not overlap")
+        (require (c.bgp == null || lbs != []) "`bgp` advertises loadBalancerIPs; set some")
+        (require (c.bgp == null || lib.all (p: ip.lanNodes nodes p.address != []) c.bgp.peers) "every bgp peer must be inside the `address` subnet of some nodes, which peer with it")
         (require (isolated == []) "no WireGuard path between ${lib.concatMapStringsSep ", " (p: "${(lib.head p).name} and ${(lib.last p).name}") isolated}; give one of each pair an `endpoint`")
         (require (!lib.any (a: lib.any (e: ip.within e a) lbs) reserved) "loadBalancerIPs must not include node or gateway addresses")
       ]

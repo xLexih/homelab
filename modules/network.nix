@@ -1,8 +1,8 @@
 # LAN address, WireGuard full mesh and firewall.
 #
-# Everything Kubernetes does (API, etcd, kubelet, flannel VXLAN) travels over
-# wg0; the LAN only exposes SSH and WireGuard. LoadBalancer and hostPort
-# traffic is DNATed by kube-proxy/ServiceLB before the input firewall.
+# Everything Kubernetes does (API, etcd, kubelet, Cilium's Geneve tunnels)
+# travels over wg0; the LAN only exposes SSH and WireGuard. Cilium handles
+# LoadBalancer traffic in eBPF before it reaches the input firewall.
 {
   lib,
   config,
@@ -50,13 +50,15 @@ in {
     firewall = {
       # SSH is opened by services.openssh.
       allowedUDPPorts = [net.wgPort];
-      trustedInterfaces = ["wg0" "cni0" "flannel.1"];
+      # wg0, Cilium's host and tunnel devices, and the pods' veths
+      trustedInterfaces = ["wg0" "cilium_host" "cilium_net" "cilium_geneve" "lxc+"];
       checkReversePath = "loose";
     };
 
     wireguard.interfaces.wg0 = {
       ips = ["${node.wgIP}/${toString (ip.parse net.wgCIDR).prefix}"];
       listenPort = net.wgPort;
+      mtu = net.wgMTU;
       privateKeyFile = config.age.secrets.wireguard.path;
       peers =
         map (peer: let

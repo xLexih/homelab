@@ -43,6 +43,39 @@
       "include node or gateway" = home // {loadBalancerIPs = ["192.168.2.100-192.168.2.110"];};
       "written low-high" = home // {loadBalancerIPs = ["192.168.2.160-192.168.2.150"];};
       "no WireGuard path" = set {nodes.master3.location = "elsewhere";};
+      "share one `location`" = set {
+        nodes.master3 = {
+          location = "elsewhere";
+          endpoint = "master3.example.org";
+        };
+      };
+      "set some" =
+        home
+        // {
+          loadBalancerIPs = [];
+          bgp = {
+            asn = 65100;
+            peers = [
+              {
+                address = "192.168.2.1";
+                asn = 65000;
+              }
+            ];
+          };
+        };
+      "every bgp peer" =
+        home
+        // {
+          bgp = {
+            asn = 65100;
+            peers = [
+              {
+                address = "10.9.9.9";
+                asn = 65000;
+              }
+            ];
+          };
+        };
     };
     rejected = expected: definition: let
       errors = clusterLib.validate (clusterLib.evalCluster "test" definition);
@@ -71,6 +104,16 @@
         '';
         validation = assert lib.all (x: x) (lib.mapAttrsToList rejected invalid);
           pkgs.runCommand "validation" {} "touch $out";
+        # Every chart the servers fetch and every manifest they write. Small,
+        # and the only way to catch a wrong chart hash before a deploy.
+        charts = let
+          servers = lib.filter (k: k.role == "server") (map (n: n.config.services.k3s) (lib.attrValues self.nixosConfigurations));
+          paths = lib.concatMap (k:
+            lib.concatMap (c: [c.package c.source]) (lib.attrValues k.autoDeployCharts)
+            ++ map (m: m.source) (lib.filter (m: m.enable) (lib.attrValues k.manifests)))
+          servers;
+        in
+          pkgs.runCommand "charts" {paths = lib.unique (map toString paths);} "touch $out";
         vm = import ./tests {inherit inputs lib pkgs clusterLib;};
       };
   };

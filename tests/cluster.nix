@@ -1,11 +1,22 @@
 # The cluster the VM test (tests/default.nix) boots: three servers, one agent.
 # Addresses live on the test network's eth1, next to the ones the test
-# framework assigns there.
+# framework assigns there. The deployer VM (10.0.0.250) doubles as the BGP
+# router.
 {
   stateVersion = "26.05";
   k3sVersion = "1.35";
   init = "s1";
+  clusterId = 1;
   loadBalancerIPs = ["10.0.0.200"];
+  bgp = {
+    asn = 65100;
+    peers = [
+      {
+        address = "10.0.0.250";
+        asn = 65000;
+      }
+    ];
+  };
   # small VMs
   reserved = {
     server = "cpu=100m,memory=256Mi";
