@@ -23,39 +23,53 @@ Roles are plain module conditions: `storage.nix` is active on every node once
 some node has `storage` (clients everywhere, replicas on storage nodes, the
 chart on servers); `gpu.nix` installs the driver on `gpu` nodes and the device
 plugin on servers; `k3s.nix` picks server or agent from `server`.
-`loadbalancer.nix` follows `loadBalancerIPs` instead of a role.
-`network-policy.nix` runs on servers.
+`cilium.nix`, `network-policy.nix` and `loadbalancer.nix` (when
+`loadBalancerIPs` is set) run on servers.
 
 ## Network
 
 ```text
-             LAN (SSH, WireGuard UDP; ARP for service addresses)
+             LAN (SSH, WireGuard UDP; ARP and BGP for service addresses)
    +------------+------------+------------+
    |            |            |            |
  node A ------ node B ------ node C       each service address answered by one node
    \___________ wg0 full mesh ___________/
-      k3s API, etcd, kubelet, flannel VXLAN
+      k3s API, etcd, kubelet, Cilium Geneve tunnels
 ```
 
 - Each node has a `wgIP` on `wg0`, a WireGuard full mesh. Peers in the same
   `location` connect over the LAN, others through `endpoint`. Each peer only
   routes its own /32. Endpoints given as DNS names are resolved again every
   5 minutes, so a changed public address heals by itself.
-- k3s uses the WireGuard address as node IP, binds the API and supervisor to
-  it and runs flannel VXLAN over `wg0`. Pod routes therefore need no
-  per-node configuration and all cluster traffic is encrypted.
-- kube-proxy (iptables), network policy (kube-router) and metrics-server are
-  the components embedded in k3s. NodePorts only listen on the mesh.
-- With `loadBalancerIPs`, MetalLB in layer 2 mode assigns LoadBalancer
-  addresses. Each entry becomes an address pool plus an advertisement limited
-  to the nodes whose `address` subnet contains it and to their LAN interface.
-  Speakers elect one node per address, answer ARP from it and hand over when
-  their memberlist (over `wg0`) loses that node. kube-proxy DNATs the traffic
-  on arrival. Without `loadBalancerIPs`, k3s ServiceLB publishes services on
-  the node addresses instead.
-- The LAN firewall allows SSH and the WireGuard port. `wg0`, `cni0` and
-  `flannel.1` are trusted. Service and hostPort traffic is DNATed before the
-  input chain.
+- k3s uses the WireGuard address as node IP and binds the API and supervisor
+  to it. Its own flannel, kube-proxy and kube-router are off; Cilium is the
+  CNI. Pods reach each other through Geneve tunnels between node IPs, so the
+  packets cross `wg0` encrypted, WireGuard never needs to know pod CIDRs, and
+  pod addresses arrive unchanged on the other node. Cilium's MTU follows
+  `network.wgMTU`.
+- Cilium replaces kube-proxy in eBPF. Its agents reach the API through every
+  server's `wgIP` (`k8s.apiServerURLs`), since no Service works before they
+  run. NodePorts only listen on `wg0`.
+- With `loadBalancerIPs`, Cilium LB IPAM assigns LoadBalancer addresses. The
+  entries are grouped by the location of the nodes whose `address` subnet
+  contains them; each group becomes an address pool plus an L2 announcement
+  policy limited to those nodes and their LAN interface. One node per service
+  holds a lease and answers ARP; another takes over within 3 to 7 seconds of
+  it failing. With several groups, a service picks one with the label
+  `topology.kubernetes.io/zone`. Entries outside every LAN form a pool only
+  BGP can reach. Without `loadBalancerIPs`, Cilium node IPAM gives services
+  the node addresses.
+- External traffic to a service uses direct server return: the announcing
+  node passes each connection to a backend over Geneve with the service
+  address in a Geneve option, and the backend's node answers the client
+  itself. Pods therefore see client addresses. Annotating a service
+  `service.cilium.io/forwarding-mode: snat` turns this off for it.
+- With `bgp`, Cilium's BGP control plane peers each router with the nodes on
+  its subnet and advertises every LoadBalancer address (`bgp=off` on a service
+  excludes it).
+- The LAN firewall allows SSH and the WireGuard port. `wg0`, Cilium's devices
+  and the pods' `lxc*` veths are trusted. Service traffic is handled by eBPF
+  on the LAN interface before the input chain.
 
 ## Control plane
 
@@ -75,13 +89,15 @@ has already joined.
 
 Servers run with `--secrets-encryption` and a PodSecurity admission
 configuration enforcing `baseline` (and warning about `restricted`) outside
-`kube-system`, `longhorn-system` and `metallb-system`. Namespaces that need
+`kube-system` and `longhorn-system`. Namespaces that need
 privileged pods opt out with the label
 `pod-security.kubernetes.io/enforce=privileged`.
 
-Every other namespace gets the `default-deny` NetworkPolicy (see README):
+Every other namespace gets the `default-deny` NetworkPolicy (see
+[CONFIGURATION.md](CONFIGURATION.md#network-policy)):
 each server runs a `default-deny` unit that watches namespaces through
-`k3s kubectl` and applies or removes the policy. kube-router enforces it.
+`k3s kubectl` and applies or removes the policy. Cilium enforces it; its
+`policyCIDRMatchMode=nodes` lets `ipBlock` rules select node addresses.
 
 The k3s package is `k3s_<k3sVersion>` from the pinned nixpkgs, so only lock
 updates change the patch release and only `cluster.nix` changes the minor
@@ -91,20 +107,29 @@ is evicted or OOM-killed before etcd and the API server run short.
 
 ## Add-ons
 
-CoreDNS (replacing the single k3s replica), MetalLB, Longhorn and the NVIDIA
+Cilium, CoreDNS (replacing the single k3s replica), Longhorn and the NVIDIA
 device plugin are Helm charts fetched at build time with pinned hashes and
 written to every server's manifest directory. The k3s helm-controller installs
 and upgrades them from whichever server is alive, and nothing is downloaded at
-boot besides container images. The charts use `failurePolicy: abort`: a failed
-upgrade stays failed for a human to look at instead of being uninstalled and
-reinstalled. The charts' own manifest files must not be named like one of k3s'
-bundled manifests (`coredns.yaml`, `traefik.yaml`, ...), which k3s writes on
-every start even when the component is disabled.
+boot besides container images. Cilium is a bootstrap chart: its installer Job
+runs on a server's host network against `127.0.0.1:6443`, which k3s serves
+next to the `wgIP`, since there is no pod network before it. The charts use
+`failurePolicy: abort`: a failed upgrade stays failed for a human to look at
+instead of being uninstalled and reinstalled, and `status` in the cluster
+command shows it. The charts' own manifest files must not be named like one
+of k3s' bundled manifests (`coredns.yaml`, `traefik.yaml`, ...), which k3s
+writes on every start even when the component is disabled.
+
+Before k3s starts, servers delete links in the manifest directory that point
+into the Nix store but are no longer in the configuration; the NixOS k3s
+module leaves them behind, and k3s would keep applying them. Removing a chart
+from the configuration therefore stops it from being reapplied but does not
+uninstall it: `kubectl delete helmchart <name> -n kube-system` does.
 
 CoreDNS runs two replicas that may never share a node; while the cluster has
-one node the second waits. CoreDNS and the MetalLB controller leave a failed
-node after 30 seconds instead of Kubernetes' 300, so name resolution and
-address assignment recover within about a minute and a half.
+one node the second waits. CoreDNS leaves a failed node after 30 seconds
+instead of Kubernetes' 300, so name resolution recovers within about a minute
+and a half.
 
 Longhorn stores replicas on `/data` of storage nodes only
 (`createDefaultDiskLabeledNodes`), keeps `min(3, storage nodes)` replicas and
@@ -116,9 +141,9 @@ deletes pods of a dead node so their volumes can attach elsewhere.
   root), and `/data` on `dataDisk`. Each VM gets the etcd volume so it can
   become a server later.
 - LXC containers get their kernel, modules and global kernel settings from
-  the Proxmox host. A preflight unit checks them before k3s starts,
-  kube-proxy leaves the global conntrack limit to the host, and new
-  generations are activated by restarting the container (see `lxc.md`).
+  the Proxmox host. A preflight unit checks them (including the BPF
+  filesystem Cilium needs) before k3s starts, and new generations are
+  activated by restarting the container (see `lxc.md`).
 - Nodes carry no documentation, default packages or GUI; the Nix store is
   garbage-collected weekly (14 days).
 
@@ -142,3 +167,9 @@ has passwordless sudo, which deployment needs. Root and passwords are
 disabled. LXC consoles log in as `admin` automatically, since reaching them
 requires control of the Proxmox host. Protect the admin private key with a
 passphrase: it is root on every node.
+
+<div align="right">
+
+Generated by Opus 5.5
+
+</div>
