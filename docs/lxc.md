@@ -46,15 +46,16 @@ reboot.
 
 ## Container configuration
 
-`/etc/pve/lxc/<id>.conf`, recommended:
+`/etc/pve/lxc/<id>.conf`, recommended. The example is a fourth home node,
+`master4` at 192.168.2.108:
 
 ```text
 arch: amd64
 cores: 5
 features: nesting=1,keyctl=1
-hostname: teddysmp
+hostname: master4
 memory: 14336
-net0: name=eth0,bridge=vmbr1,gw=192.168.2.1,hwaddr=BC:24:11:AD:5D:35,ip=192.168.2.100/24,type=veth
+net0: name=ens18,bridge=vmbr1,gw=192.168.2.1,hwaddr=BC:24:11:AD:5D:35,ip=192.168.2.108/24,type=veth
 ostype: nixos
 rootfs: local:100/vm-100-disk-0.raw,size=164G
 swap: 1024
@@ -78,7 +79,7 @@ lxc.mount.entry: /sys/fs/bpf sys/fs/bpf none bind,create=dir
 - `/proc/sys` and `/sys` stay read-only apart from the container's own
   network settings (LXC's `mixed` default), so pods cannot change host kernel
   settings. That is why the host sets them above.
-- The interface name in `net0` (`name=eth0`) must equal `interface` in
+- The interface name in `net0` (`name=ens18`) must equal `interface` in
   `cluster.nix`, which defaults to `ens18`: the static address and Cilium's
   ARP announcements use it.
 
@@ -86,24 +87,23 @@ The `k3s-preflight` unit in the container checks all of this before k3s starts
 and lists everything that is missing:
 
 ```bash
-nix run .#teddysmp -- ssh teddysmp journalctl -b -u k3s-preflight -u k3s
+nix run .#home -- ssh master4 journalctl -b -u k3s-preflight -u k3s
 ```
 
 The Proxmox console (`pct console <id>` or the web UI) logs in as `admin`
 without a password; anyone who can open it controls the host anyway.
 
-## Moving teddysmp to this profile
+## Containers with a looser profile
 
-teddysmp currently runs a looser profile that also has
-`lxc.mount.auto: proc:rw sys:rw` (host kernel settings writable from the
-container), an empty `lxc.cap.drop:` (keeps every capability), and a bind
-mount of `/dev/net/tun` (keep it only if a workload needs TUN devices, e.g. a
-VPN). Its `/sys/fs/bpf` bind mount stays.
+Older containers sometimes carry `lxc.mount.auto: proc:rw sys:rw` (host
+kernel settings writable from the container), an empty `lxc.cap.drop:`
+(keeps every capability), or a bind mount of `/dev/net/tun` (only needed when
+a workload uses TUN devices, e.g. a VPN). To move one to the profile above:
 
 1. Do the host setup above and check it: `sysctl kernel.panic vm.overcommit_memory`
    and `lsmod | grep -E 'geneve|wireguard'`.
-2. Remove those three lines from the container's configuration and fix the
-   interface name so it matches `cluster.nix` (`eth0` there today).
+2. Remove those lines from the container's configuration and make the
+   interface name match `cluster.nix`.
 3. `pct reboot <id>`, then check that the node becomes Ready. If
    `k3s-preflight` fails it names what is missing; if k3s itself fails,
    `journalctl -u k3s` shows why. Putting the lines back restores the old

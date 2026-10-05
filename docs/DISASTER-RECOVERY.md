@@ -46,7 +46,7 @@ nix run .#home -- switch all        # the old key no longer logs in
 mv ~/.ssh/k3s-admin-new ~/.ssh/k3s-admin && mv ~/.ssh/k3s-admin-new.pub ~/.ssh/k3s-admin.pub
 ```
 
-Do it for every cluster, and commit. If the old key leaked, also assume its
+Commit when done. If the old key leaked, also assume its
 holder copied the secrets. Rotate the node host keys, WireGuard keys and k3s
 token as described below, since re-encrypting doesn't change their values.
 

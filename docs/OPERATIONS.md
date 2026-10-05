@@ -1,7 +1,6 @@
-# Operating the clusters
+# Operating home
 
-All commands run through `nix run .#<cluster> -- <command>`; the examples use
-`lab`.
+All commands run through `nix run .#home -- <command>`.
 
 ## Command reference
 
@@ -13,7 +12,7 @@ All commands run through `nix run .#<cluster> -- <command>`; the examples use
 | `remove <node>` | move data and workloads away, delete the node from Kubernetes and etcd |
 | `status` | nodes and chart installs; fails if a chart is failing |
 | `ssh <node> [command]` | SSH with the pinned host key |
-| `kubeconfig [node]` | write `~/.kube/<cluster>.yaml` and print the tunnel command |
+| `kubeconfig [node]` | write `~/.kube/home.yaml` and print the tunnel command |
 | `image <archive> [node]...` | import an image tarball (default: every node) |
 | `secrets sync` | create keys for new nodes, re-encrypt everything for the current ones |
 | `secrets edit <file>` | edit an encrypted file |
@@ -27,20 +26,23 @@ Secrets are decrypted with `$AGE_IDENTITY`, which defaults to
 `secrets sync` stages the files it generates with `git add`, because the flake
 only sees tracked files.
 
-## Installing a new cluster
+## Installing from scratch
+
+The keys and secrets already exist in `clusters/home/secrets`, so a fresh
+install only needs the admin key in `ssh-agent` and a NixOS installer booted
+on each machine:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/k3s-admin          # with a passphrase, kept in ssh-agent
-mkdir -p clusters/lab/secrets
-cp ~/.ssh/k3s-admin.pub clusters/lab/secrets/admin.pub
-$EDITOR clusters/lab/cluster.nix                    # see CONFIGURATION.md
-nix run .#lab -- secrets sync                       # host keys, WireGuard keys, k3s token
 nix flake check
 
-# the init server first, then the rest; a VM's disks are erased after you confirm
-nix run .#lab -- install cp1 root@<installer-ip>
-nix run .#lab -- install cp2 root@<installer-ip>
+# master1 (init) first, then the rest; a VM's disks are erased after you confirm
+nix run .#home -- install master1 root@<installer-ip>
+nix run .#home -- install master2 root@<installer-ip>
+nix run .#home -- install master3 root@<installer-ip>
 ```
+
+To bring back the old state, copy an etcd snapshot onto master1 and restore
+it as in [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md#etcd-lost-quorum).
 
 `install` boots a VM from any NixOS installer into its final system with
 `nixos-anywhere`, putting the node's SSH host key in place first so it can
@@ -74,7 +76,7 @@ adding it again.
 
 ## Debugging on a node
 
-`nix run .#lab -- ssh <node>` gives you a shell as `admin` with passwordless
+`nix run .#home -- ssh <node>` gives you a shell as `admin` with passwordless
 sudo. Every node carries a set of tools for poking around:
 
 - processes: `htop`, `btop`, `iotop`, `lsof`, `strace`, `iostat`/`sar` (sysstat)
@@ -121,7 +123,7 @@ nix build .#checks.x86_64-linux.vm -L            # only the VM test, with its lo
 ```
 
 `flake check` evaluates every node, runs alejandra, deadnix and statix,
-ShellChecks each cluster's command, makes sure a set of broken cluster
+ShellChecks the cluster command, makes sure a set of broken cluster
 definitions is rejected, and fetches every Helm chart against its pinned hash
 (`charts`). It also boots the VM test in `tests/`: four nodes
 built from the real modules, plus a deployer VM that runs the cluster command

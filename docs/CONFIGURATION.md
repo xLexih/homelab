@@ -15,9 +15,8 @@ modules/                         NixOS modules: base, network, k3s, cilium, netw
 tests/                           a VM test cluster, its throwaway keys, and the test script
 ```
 
-The flake picks up new directories under `clusters/` by itself and produces
-`nixosConfigurations.<cluster>-<node>` for every node and `packages.<cluster>`
-for the command.
+The flake turns `clusters/home` into `nixosConfigurations.home-<node>` for
+every node and `packages.home` for the command (`nix run .#home`).
 
 ## Roles
 
@@ -28,52 +27,45 @@ for the command.
 | `gpu`     | NVIDIA driver and container runtime; the device plugin is installed cluster-wide. |
 | (none)    | k3s agent. Every node, servers included, runs workloads. |
 
-## Examples
+## Example
 
-The smallest useful cluster is one machine:
+`clusters/home/cluster.nix`: three servers that also hold Longhorn replicas,
+one of them with a GPU, and a range of LAN addresses for LoadBalancer
+services:
 
 ```nix
-# clusters/lab/cluster.nix
 {
-  stateVersion = "26.05";
   k3sVersion = "1.35";
-  nodes.lab1 = {
-    roles = ["server"];
-    wgIP = "10.100.0.1";
-    address = "192.168.1.10/24";
-    gateway = "192.168.1.1";
-    disk = "/dev/sda";
+  stateVersion = "26.05";
+  init = "master1";               # the server that created the cluster
+  clusterId = 1;                  # Cilium identity, for ClusterMesh later
+  loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
+  gpuSharing = 3;                 # up to 3 pods share the GPU (time-slicing)
+  registries.mirrors."registry-docker-registry.registry.svc.cluster.local:5000".endpoint = ["http://192.168.2.151:5000"];
+
+  nodes = {
+    master1 = {
+      roles = ["server" "storage" "gpu"];
+      wgIP = "10.100.0.1";
+      address = "192.168.2.105/24";
+      gateway = "192.168.2.1";
+      disk = "/dev/sdb";
+      dataDisk = "/dev/sda";
+    };
+    master2 = {
+      roles = ["server" "storage"];
+      wgIP = "10.100.0.2";
+      address = "192.168.2.106/24";
+      gateway = "192.168.2.1";
+      disk = "/dev/sdb";
+      dataDisk = "/dev/sda";
+    };
+    master3 = { /* like master2, with .3 and .107 */ };
   };
 }
 ```
 
-A larger one, with three servers sharing replicated storage, two workers (one
-with a GPU) and a range of LAN addresses for LoadBalancer services:
-
-```nix
-{
-  stateVersion = "26.05";
-  k3sVersion = "1.35";
-  init = "cp1"; # the server that creates the cluster
-  loadBalancerIPs = ["192.168.1.50-192.168.1.59"];
-
-  nodes = let
-    node = n: roles: {
-      inherit roles;
-      wgIP = "10.100.0.${toString n}";
-      address = "192.168.1.${toString (10 + n)}/24";
-      gateway = "192.168.1.1";
-      disk = "/dev/sda";
-    } // (if builtins.elem "storage" roles then {dataDisk = "/dev/sdb";} else {});
-  in {
-    cp1 = node 1 ["server" "storage"];
-    cp2 = node 2 ["server" "storage"];
-    cp3 = node 3 ["server" "storage"];
-    w1 = node 4 [];
-    w2 = node 5 ["gpu"];
-  };
-}
-```
+The README's quick start lists every option a node takes.
 
 Nodes at another site join over WireGuard: give them a different `location`
 and a public `endpoint`. A node behind NAT with no endpoint works too; it
@@ -100,7 +92,7 @@ address, or let a TCP and a UDP service share one, with annotations:
 ```yaml
 metadata:
   annotations:
-    lbipam.cilium.io/ips: 192.168.1.53
+    lbipam.cilium.io/ips: 192.168.2.153
     lbipam.cilium.io/sharing-key: dns   # the same key on both services
 ```
 
@@ -127,7 +119,7 @@ out.
 ```nix
 bgp = {
   asn = 65100;
-  peers = [{address = "192.168.1.1"; asn = 65000;}];
+  peers = [{address = "192.168.2.1"; asn = 65000;}];
 };
 ```
 

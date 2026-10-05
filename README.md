@@ -23,8 +23,7 @@ volumes. If it isn't in `cluster.nix`, it isn't on the machine.
 ## Quick start
 
 Run from the repository root with your admin key in `ssh-agent`
-(`ssh-add ~/.ssh/k3s-admin`). Each cluster has its own command; these use
-`home`.
+(`ssh-add ~/.ssh/k3s-admin`). Everything goes through `nix run .#home --`.
 
 ```bash
 nix run .#home -- status                 # nodes, and whether every chart installed
@@ -102,8 +101,6 @@ Lost keys, leaked keys, dead servers: [docs/DISASTER-RECOVERY.md](docs/DISASTER-
 - [docs/lxc.md](docs/lxc.md): running a node in a Proxmox container
 - [docs/DISASTER-RECOVERY.md](docs/DISASTER-RECOVERY.md): rotating or
   recovering lost keys, host keys, WireGuard keys and the token; etcd quorum
-- [docs/MIGRATION.md](docs/MIGRATION.md): moving the existing clusters to this
-  layout
 
 <div align="right">
 
