@@ -72,6 +72,28 @@ existing ones. The `storage` and `gpu` roles can be switched on and off in
 place. Turning an agent into a server, or back, means removing the node and
 adding it again.
 
+## Debugging on a node
+
+`nix run .#lab -- ssh <node>` gives you a shell as `admin` with passwordless
+sudo. Every node carries a set of tools for poking around:
+
+- processes: `htop`, `btop`, `iotop`, `lsof`, `strace`, `iostat`/`sar` (sysstat)
+- network: `dig`, `tcpdump`, `mtr`, `iperf3`, `ethtool`, `conntrack`, `nmap`,
+  `socat`, `curl`, `wg`
+- disks and hardware: `ncdu`, `smartctl`, `lspci`, `lsusb`
+- everything else: `jq`, `yq`, `tree`, `file`, `vim`, `tmux`, `git`
+
+Anything else in nixpkgs is one comma away: `, rg pattern` runs ripgrep without
+installing it. When several packages provide a command, comma asks which one,
+which only works in an interactive shell; elsewhere name the package with
+`nix shell nixpkgs#ripgrep -c rg pattern`. In an interactive shell, typing a
+command that isn't installed lists the packages that have it. Flakes are
+enabled, and `nixpkgs` is the exact nixpkgs the node was built from, so
+whatever comma fetches matches the system.
+
+Kubernetes itself: `sudo k3s kubectl …`, and for Cilium
+`sudo k3s kubectl -n kube-system exec ds/cilium -- cilium-dbg status`.
+
 ## Backups
 
 Every server keeps etcd snapshots in `/var/lib/rancher/k3s/server/db/snapshots`,
