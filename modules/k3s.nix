@@ -97,6 +97,11 @@ in {
     text = builtins.toJSON cluster.registries;
   };
 
+  # `kubectl` without sudo on servers. wheel (admin) already has passwordless
+  # sudo, so reading the cluster-admin kubeconfig grants nothing new. Agents
+  # have no admin kubeconfig.
+  environment.variables.KUBECONFIG = lib.mkIf isServer "/etc/rancher/k3s/k3s.yaml";
+
   networking.extraHosts = lib.concatMapStrings (n: "${n.wgIP} ${joinName}\n") joinVia;
 
   services.k3s = {
@@ -133,6 +138,8 @@ in {
         "--disable-network-policy"
         "--disable-kube-proxy"
         "--bind-address=${node.wgIP}"
+        "--write-kubeconfig-group=wheel"
+        "--write-kubeconfig-mode=0640"
         "--advertise-address=${node.wgIP}"
         "--tls-san=127.0.0.1"
         "--tls-san=${joinName}"

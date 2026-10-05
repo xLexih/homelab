@@ -91,8 +91,10 @@ command that isn't installed lists the packages that have it. Flakes are
 enabled, and `nixpkgs` is the exact nixpkgs the node was built from, so
 whatever comma fetches matches the system.
 
-Kubernetes itself: `sudo k3s kubectl …`, and for Cilium
-`sudo k3s kubectl -n kube-system exec ds/cilium -- cilium-dbg status`.
+Kubernetes itself: on servers, `kubectl` works without sudo (`KUBECONFIG`
+points at k3s' admin kubeconfig, readable by `wheel`), e.g. for Cilium
+`kubectl -n kube-system exec ds/cilium -- cilium-dbg status`. Agents have no
+admin kubeconfig; use a server or `kubeconfig` from your machine.
 
 ## Backups
 
