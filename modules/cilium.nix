@@ -32,6 +32,8 @@ in
           # Agents start before any Service works: give them every server.
           k8s.apiServerURLs = toString (map (n: "https://${n.wgIP}:6443") servers);
           kubeProxyReplacement = true;
+          # Allow multiple CNIs to manage things
+          cni.exclusive = false;
           # LAN interfaces carry LoadBalancer traffic; NodePorts listen only
           # on wg0, as LoadBalancer addresses are the way into the cluster.
           devices = lib.unique (map (n: n.interface) nodes) ++ ["wg0"];

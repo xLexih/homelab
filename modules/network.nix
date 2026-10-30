@@ -49,7 +49,10 @@ in {
 
     firewall = {
       # SSH is opened by services.openssh.
-      allowedUDPPorts = [net.wgPort];
+      # Octelium gateway tunnels: WireGuard (53820) and QUIC (8443). The
+      # clients dial the Gateway publicIPs directly, so these must be open
+      # on the nodes (LoadBalancer eBPF bypass does not cover them).
+      allowedUDPPorts = [net.wgPort 53820 8443];
       # wg0, Cilium's host and tunnel devices, and the pods' veths
       trustedInterfaces = ["wg0" "cilium_host" "cilium_net" "cilium_geneve" "lxc+"];
       checkReversePath = "loose";
