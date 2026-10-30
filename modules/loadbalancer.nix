@@ -6,6 +6,7 @@
 # additionally advertises every address to the routers.
 {
   lib,
+  pkgs,
   cluster,
   node,
   ...
@@ -141,9 +142,14 @@
 in
   lib.mkIf (lbs != [] && lib.elem "server" node.roles) {
     # Separate from the chart: these need Cilium's CRDs, and k3s retries a
-    # manifest until it applies.
-    services.k3s.manifests.loadbalancer.content =
-      lib.mapAttrsToList pool groups
-      ++ map l2Policy locations
-      ++ bgp;
+    # manifest until it applies. JSON, not the module's YAML 1.2: Kubernetes
+    # reads YAML 1.1, where an unquoted `off` (the bgp label value) is false.
+    services.k3s.manifests.loadbalancer.source = (pkgs.formats.json {}).generate "loadbalancer.yaml" {
+      apiVersion = "v1";
+      kind = "List";
+      items =
+        lib.mapAttrsToList pool groups
+        ++ map l2Policy locations
+        ++ bgp;
+    };
   }
