@@ -169,6 +169,18 @@ minor version only moves when you raise `k3sVersion` in a cluster's
 `cluster.nix`, one minor at a time, and `switch all` upgrades the servers
 before the agents as k3s requires.
 
+`switch` doesn't load a new kernel. Reboot one node at a time and wait for it
+to be `Ready` before moving on to the next. Cordon the node first
+(`kubectl cordon master1`, then `uncordon` once it's back). Otherwise the
+scheduler keeps placing pods that tolerate every taint, like cilium-operator,
+onto the node while it shuts down, and the kubelet rejects each one, which
+leaves hundreds of `Failed` pods. Clean those up with
+`kubectl delete pods -A --field-selector=status.phase=Failed`.
+
+If a `switch` exits 4 with `Failed to start iscsid.socket`, Longhorn started
+`iscsid.service` during the switch, before the socket came back up. iSCSI
+still works, and the socket listens again after the next reboot.
+
 Chart versions and hashes are pinned in `modules/cilium.nix`, `k3s.nix`,
 `storage.nix` and `gpu.nix`. Move Longhorn and Cilium one minor version at a
 time. The VM test has no internet access, so when a chart's image changes,
