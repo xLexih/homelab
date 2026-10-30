@@ -44,6 +44,17 @@ nix run .#home -- install master3 root@<installer-ip>
 To bring back the old state, copy an etcd snapshot onto master1 and restore
 it as in [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md#etcd-lost-quorum).
 
+To reinstall nodes that are still running, kexec them into the installer with
+the admin key first. `install` can't do this through `admin@`, because the key
+nixos-anywhere copies to `~/.ssh` is ignored. Stop k3s on master2 and master3
+before reinstalling master1, so it starts a new cluster instead of rejoining
+the old one:
+
+```bash
+nix run nixpkgs#nixos-anywhere -- -i ~/.ssh/k3s-admin --phases kexec --flake .#home-master1 admin@192.168.2.105
+nix run .#home -- install master1 root@192.168.2.105
+```
+
 `install` boots a VM from any NixOS installer into its final system with
 `nixos-anywhere`, putting the node's SSH host key in place first so it can
 decrypt its secrets on the first boot. For an LXC node it copies the host key

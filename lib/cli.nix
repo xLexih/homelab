@@ -180,9 +180,11 @@ in
         if [[ $node == "$init" ]] && server=$(live_server "$node"); then
           die "$server already runs this cluster, and $node as \`init\` would start a new one. Set \`init\` to $server in cluster.nix first."
         fi
-        mkdir -p "$tmp/etc/ssh"
+        # Explicit modes: umask 077 would make the target's /etc/ssh 700, and sshd
+        # reads /etc/ssh/authorized_keys.d as the logging-in user.
+        install -d -m 755 "$tmp/etc" "$tmp/etc/ssh"
         age -d -i "$identity" "$dir/hosts/$node/ssh-key.age" >"$tmp/etc/ssh/ssh_host_ed25519_key"
-        cp "$dir/hosts/$node/ssh-key.pub" "$tmp/etc/ssh/ssh_host_ed25519_key.pub"
+        install -m 644 "$dir/hosts/$node/ssh-key.pub" "$tmp/etc/ssh/ssh_host_ed25519_key.pub"
         if [[ ''${PLATFORM[$node]} == vm ]]; then
           read -rp "This ERASES every disk of $node at $target. Type '$node' to continue: " answer
           [[ $answer == "$node" ]] || die "aborted"
