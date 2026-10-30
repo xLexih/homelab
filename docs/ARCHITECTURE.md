@@ -186,9 +186,10 @@ boot.
 - Longhorn keeps replicas on `/data` of storage nodes only
   (`createDefaultDiskLabeledNodes`), `min(3, storage nodes)` of them, and
   deletes pods of a dead node so their volumes can attach elsewhere.
-- `registries` becomes `/etc/rancher/k3s/registries.yaml`. home maps its
-  in-cluster registry name to the registry's LoadBalancer address
-  `192.168.2.151:5000`, since nodes don't resolve cluster DNS.
+- `registries`, plus the mirror for `registry`, becomes
+  `/etc/rancher/k3s/registries.yaml`. Nodes don't resolve cluster DNS, so
+  `registry.registry.svc.cluster.local:5000` maps to the registry's
+  LoadBalancer address, which a CiliumNetworkPolicy opens to the nodes only.
 
 ## Nodes
 

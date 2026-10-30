@@ -41,7 +41,7 @@ services:
   clusterId = 1;                  # Cilium identity, for ClusterMesh later
   loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
   gpuSharing = 3;                 # up to 3 pods share the GPU (time-slicing)
-  registries.mirrors."registry-docker-registry.registry.svc.cluster.local:5000".endpoint = ["http://192.168.2.151:5000"];
+  registry.address = "192.168.2.151"; # in-cluster image registry (see Registry)
 
   nodes = {
     master1 = {
@@ -126,19 +126,39 @@ bgp = {
 Without `loadBalancerIPs`, services get the nodes' own addresses. NodePorts
 listen on the WireGuard mesh only.
 
+## Registry
+
+`registry.address` runs an image registry in the cluster. Pods name their
+images `registry.registry.svc.cluster.local:5000/<name>:<tag>` (`registry.host`,
+built from `namespace` and `port`). Nodes don't resolve cluster DNS, so every
+node's containerd mirrors that name to the LoadBalancer address, which accepts
+connections from the nodes only. Everything else has a default:
+
+```nix
+registry = {
+  address = "192.168.2.151"; # inside loadBalancerIPs
+  # size = "20Gi";                                # Longhorn volume
+  # image = "registry:3.0.0@sha256:6c5666b8…";    # pinned by digest
+  # namespace = "registry";                       # also the Service name
+  # port = 5000;
+};
+```
+
+Nothing on the LAN can push. Push through the API server instead; docker
+speaks plain HTTP to 127.0.0.1 without extra configuration:
+
+```bash
+kubectl -n registry port-forward svc/registry 5000 &
+docker push 127.0.0.1:5000/<name>:<tag>
+```
+
 ## Private registries
 
 `registries` is written to every node as k3s'
 [`registries.yaml`](https://docs.k3s.io/installation/private-registry):
-mirrors, credentials and TLS settings for containerd. Nodes don't resolve
-cluster DNS, so a registry running in the cluster needs a LoadBalancer
-address. home keeps its images' in-cluster names and pulls them through one:
-
-```nix
-registries.mirrors."registry-docker-registry.registry.svc.cluster.local:5000".endpoint = ["http://192.168.2.151:5000"];
-```
-
-k3s restarts when the file changes, since containerd only reads it at start.
+mirrors, credentials and TLS settings for containerd, merged with the mirror
+for `registry`. k3s restarts when the file changes, since containerd only
+reads it at start.
 
 ## Network policy
 

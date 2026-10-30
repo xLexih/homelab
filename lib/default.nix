@@ -55,6 +55,8 @@
         (require (c.bgp == null || lib.all (p: ip.lanNodes nodes p.address != []) c.bgp.peers) "every bgp peer must be inside the `address` subnet of some nodes, which peer with it")
         (require (isolated == []) "no WireGuard path between ${lib.concatMapStringsSep ", " (p: "${(lib.head p).name} and ${(lib.last p).name}") isolated}; give one of each pair an `endpoint`")
         (require (!lib.any (a: lib.any (e: ip.within e a) lbs) reserved) "loadBalancerIPs must not include node or gateway addresses")
+        (require (c.registry == null || lib.any (e: ip.within e c.registry.address) lbs) "registry.address must be inside loadBalancerIPs")
+        (require (c.registry == null || lib.any (has "storage") nodes) "registry needs a node with the \"storage\" role")
       ]
       ++ map nodeErrors nodes
     );

@@ -204,8 +204,52 @@ in {
       description = ''
         Written to every node as k3s' registries.yaml (mirrors, credentials,
         TLS); see https://docs.k3s.io/installation/private-registry. Nodes
-        don't resolve cluster DNS, so point mirrors at LAN addresses, e.g. a
-        registry's LoadBalancer address.
+        don't resolve cluster DNS, so point mirrors at LAN addresses.
+        `registry` adds the mirror for its own registry.
+      '';
+    };
+    registry = mkOption {
+      type = types.nullOr (types.submodule ({config, ...}: {
+        options = {
+          address = mkOption {
+            type = ipv4;
+            description = "LoadBalancer address the nodes pull from; inside `loadBalancerIPs`.";
+          };
+          size = mkOption {
+            type = types.str;
+            default = "20Gi";
+            description = "Longhorn volume holding the images.";
+          };
+          image = mkOption {
+            type = types.str;
+            default = "registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e";
+            description = "Registry image, pinned by digest.";
+          };
+          namespace = mkOption {
+            type = types.str;
+            default = "registry";
+            description = "Namespace, and the name of the Service and Deployment.";
+          };
+          port = mkOption {
+            type = types.port;
+            default = 5000;
+          };
+          host = mkOption {
+            type = types.str;
+            readOnly = true;
+            default = "${config.namespace}.${config.namespace}.svc.cluster.local:${toString config.port}";
+            description = "What images are named after: `<host>/<name>:<tag>`.";
+          };
+        };
+      }));
+      default = null;
+      example = {address = "192.168.1.51";};
+      description = ''
+        An image registry in the cluster (needs a storage node). Pods use
+        images named `<host>/<name>:<tag>`; nodes pull them from `address`,
+        which accepts the nodes only. Push through the API server:
+        `kubectl -n <namespace> port-forward svc/<namespace> <port>`, then
+        `docker push 127.0.0.1:<port>/<name>:<tag>`. Off when null.
       '';
     };
     gpuSharing = mkOption {

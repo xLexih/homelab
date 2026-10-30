@@ -7,8 +7,8 @@
   clusterId = 1;
   loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
   gpuSharing = 3;
-  # images keep their in-cluster name; nodes pull through registry-lb
-  registries.mirrors."registry-docker-registry.registry.svc.cluster.local:5000".endpoint = ["http://192.168.2.151:5000"];
+  # images: registry.registry.svc.cluster.local:5000/<name>, pushed via kubectl port-forward
+  registry.address = "192.168.2.151";
 
   nodes = {
     master1 = {

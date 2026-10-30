@@ -18,6 +18,15 @@
   nodes = lib.attrValues cluster.nodes;
   hasStorage = lib.any (n: lib.elem "storage" n.roles) nodes;
   s3 = cluster.etcdS3;
+  # the cluster's own registry (modules/registry.nix), pulled through its
+  # LoadBalancer address
+  registries = let
+    reg = cluster.registry;
+  in
+    lib.recursiveUpdate (lib.optionalAttrs (reg != null) {
+      mirrors.${reg.host}.endpoint = ["http://${reg.address}:${toString reg.port}"];
+    })
+    cluster.registries;
   dnsIP = ip.host net.serviceCIDR 10;
   dnsReplicas = lib.min 2 (builtins.length nodes);
   # Joining nodes resolve this name to the other servers, `init` first, and
@@ -90,11 +99,11 @@ in {
     environment.GODEBUG = "netdns=go";
     serviceConfig.ExecStartPre = lib.optional isServer "${pruneManifests}";
     # containerd reads registries.yaml only when k3s starts
-    restartTriggers = lib.optional (cluster.registries != {}) config.environment.etc."rancher/k3s/registries.yaml".source;
+    restartTriggers = lib.optional (registries != {}) config.environment.etc."rancher/k3s/registries.yaml".source;
   };
 
-  environment.etc."rancher/k3s/registries.yaml" = lib.mkIf (cluster.registries != {}) {
-    text = builtins.toJSON cluster.registries;
+  environment.etc."rancher/k3s/registries.yaml" = lib.mkIf (registries != {}) {
+    text = builtins.toJSON registries;
   };
 
   # `kubectl` without sudo on servers. wheel (admin) already has passwordless

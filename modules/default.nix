@@ -20,6 +20,7 @@
     ./storage.nix
     ./gpu.nix
     ./loadbalancer.nix
+    ./registry.nix
   ];
 
   system.stateVersion = cluster.stateVersion;
