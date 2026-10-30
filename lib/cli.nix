@@ -321,7 +321,7 @@ in
         [[ ''${ROLE[$node]} == server ]] || die "$node is not a server"
         mkdir -p "$HOME/.kube"
         remote "$node" sudo cat /etc/rancher/k3s/k3s.yaml |
-          sed -E "s#server: https://[^:]+:6443#server: https://127.0.0.1:6443#; s#^( *(name|cluster|user|current-context):) default\$#\1 $cluster#" |
+          sed -E "s#server: https://[^:]+:6443#server: https://127.0.0.1:6443#; s#^( *-? *(name|cluster|user|current-context):) default\$#\1 $cluster#" |
           install -m 0600 /dev/stdin "$out"
         ssh_opts "$node"
         echo "wrote $out; open the API tunnel with:"
