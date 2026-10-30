@@ -16,24 +16,24 @@
       wgIP = "10.100.0.1";
       address = "192.168.2.105/24";
       gateway = "192.168.2.1";
-      disk = "/dev/sdb";
-      dataDisk = "/dev/sda";
+      disk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1";
+      dataDisk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0";
     };
     master2 = {
       roles = ["server" "storage"];
       wgIP = "10.100.0.2";
       address = "192.168.2.106/24";
       gateway = "192.168.2.1";
-      disk = "/dev/sdb";
-      dataDisk = "/dev/sda";
+      disk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1";
+      dataDisk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0";
     };
     master3 = {
       roles = ["server" "storage"];
       wgIP = "10.100.0.3";
       address = "192.168.2.107/24";
       gateway = "192.168.2.1";
-      disk = "/dev/sdb";
-      dataDisk = "/dev/sda";
+      disk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1";
+      dataDisk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0";
     };
   };
 }
