@@ -7,8 +7,12 @@
   clusterId = 1;
   loadBalancerIPs = ["192.168.2.150-192.168.2.160"];
   gpuSharing = 3;
-  # images: registry.registry.svc.cluster.local:5000/<name>, pushed via kubectl port-forward
-  registry.address = "192.168.2.151";
+  # images: registry.registry.svc.cluster.local:5000/<name>, pushed via kubectl
+  # port-forward or https://registry.lexih.dev (an oTrust private service)
+  registry = {
+    address = "192.168.2.151";
+    clientNamespaces = ["otrust"];
+  };
 
   nodes = {
     master1 = {

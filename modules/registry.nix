@@ -2,7 +2,8 @@
 # option (lib/options.nix). Pods name images <host>/<name>; nodes can't resolve
 # that, so k3s.nix mirrors it to the LoadBalancer address, which only the
 # nodes may reach. Nothing on the LAN can push: pushes go through the API
-# server with `kubectl port-forward`, where docker trusts 127.0.0.1 over HTTP.
+# server with `kubectl port-forward`, where docker trusts 127.0.0.1 over HTTP,
+# or through a gateway pod in `clientNamespaces` that terminates TLS.
 {
   lib,
   pkgs,
@@ -13,6 +14,8 @@
   reg = cluster.registry;
   name = reg.namespace; # also the Service, Deployment, volume and app label
   port = toString reg.port;
+  toPorts = "[{ports: [{port: \"${port}\", protocol: TCP}]}]";
+  clients = lib.concatMapStrings (ns: ", {fromEndpoints: [{matchLabels: {\"k8s:io.kubernetes.pod.namespace\": \"${ns}\"}}], toPorts: ${toPorts}}") reg.clientNamespaces;
 in
   lib.mkIf (reg != null && lib.elem "server" node.roles) {
     # k3s retries a manifest until it applies (the policy needs Cilium's CRDs)
@@ -39,7 +42,8 @@ in
             containers:
               - name: registry
                 image: "${reg.image}"
-                env: [{name: REGISTRY_LOG_LEVEL, value: info}, {name: REGISTRY_HTTP_ADDR, value: ":${port}"}]
+                # Location headers without scheme and host: behind a TLS gateway the registry sees plain HTTP
+                env: [{name: REGISTRY_LOG_LEVEL, value: info}, {name: REGISTRY_HTTP_ADDR, value: ":${port}"}, {name: REGISTRY_HTTP_RELATIVEURLS, value: "true"}]
                 ports: [{name: registry, containerPort: ${port}}]
                 readinessProbe: {httpGet: {path: /v2/, port: registry}}
                 resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 512Mi}}
@@ -52,12 +56,12 @@ in
       metadata: {name: ${name}, namespace: ${name}, annotations: {lbipam.cilium.io/ips: "${reg.address}"}}
       spec: {type: LoadBalancer, selector: {app: ${name}}, ports: [{name: registry, port: ${port}, targetPort: registry}]}
       ---
-      # on top of the namespace's default-deny: the nodes' containerd only
+      # on top of the namespace's default-deny: the nodes' containerd and the pods of clientNamespaces
       apiVersion: cilium.io/v2
       kind: CiliumNetworkPolicy
       metadata: {name: ${name}-nodes, namespace: ${name}}
       spec:
         endpointSelector: {matchLabels: {app: ${name}}}
-        ingress: [{fromEntities: [host, remote-node], toPorts: [{ports: [{port: "${port}", protocol: TCP}]}]}]
+        ingress: [{fromEntities: [host, remote-node], toPorts: ${toPorts}}${clients}]
     '';
   }

@@ -265,6 +265,12 @@ in {
             type = types.port;
             default = 5000;
           };
+          clientNamespaces = mkOption {
+            type = types.listOf types.str;
+            default = [];
+            example = ["otrust"];
+            description = "Namespaces whose pods may reach the registry, such as a gateway that relays pushes.";
+          };
           host = mkOption {
             type = types.str;
             readOnly = true;

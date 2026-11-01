@@ -147,8 +147,9 @@ listen on the WireGuard mesh only.
 `registry.address` runs an image registry in the cluster. Pods name their
 images `registry.registry.svc.cluster.local:5000/<name>:<tag>` (`registry.host`,
 built from `namespace` and `port`). Nodes don't resolve cluster DNS, so every
-node's containerd mirrors that name to the LoadBalancer address, which accepts
-connections from the nodes only. Everything else has a default:
+node's containerd mirrors that name to the LoadBalancer address. The registry
+accepts connections from the nodes and from the pods of `clientNamespaces`
+only. Everything else has a default:
 
 ```nix
 registry = {
@@ -157,16 +158,21 @@ registry = {
   # image = "registry:3.0.0@sha256:6c5666b8…";    # pinned by digest
   # namespace = "registry";                       # also the Service name
   # port = 5000;
+  # clientNamespaces = ["otrust"];               # e.g. a gateway with TLS
 };
 ```
 
-Nothing on the LAN can push. Push through the API server instead; docker
+Nothing on the LAN can push directly. Push through the API server; docker
 speaks plain HTTP to 127.0.0.1 without extra configuration:
 
 ```bash
 kubectl -n registry port-forward svc/registry 5000 &
 docker push 127.0.0.1:5000/<name>:<tag>
 ```
+
+A gateway in `clientNamespaces` can also serve the registry over HTTPS. The
+registry answers with relative `Location` URLs, so it works behind a proxy
+that terminates TLS.
 
 ## Private registries
 
