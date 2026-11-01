@@ -26,21 +26,21 @@
   images = map pkgs.dockerTools.pullImage [
     {
       imageName = "coredns/coredns";
-      imageDigest = "sha256:7efd3c635b03efd68c4e8398fc45f0d993d0e9ab016f72c1cefb0fd6d01aa286";
-      hash = "sha256-sTDGI3KRCsB8Q8G5QHfDc2nDsg8FYNJ4fIxuGhsRUFU=";
-      finalImageTag = "1.14.7";
+      imageDigest = "sha256:0a9d8c8ddf34347eb59aad9a8784f0710de88d6d112726d11d271f9bc6daca26";
+      hash = "sha256-VgorHUi+sJG1zMN+pLjedYbG3owsv3J7IZSM4ggr1X8=";
+      finalImageTag = "1.15.0";
     }
     {
       imageName = "quay.io/cilium/cilium";
-      imageDigest = "sha256:2939231d0d3e3ebddcd80fffa168b7ddcc78fdf0dc864d1c8c126ff523c54f01";
-      hash = "sha256-EiI6gDR61JdWt1grZkCe+IAVSTFDeapW9c+kH1Cl2+8=";
-      finalImageTag = "v1.20.2";
+      imageDigest = "sha256:20fe92e4c86641233a450098c158d2d29085f3419931ab6bf681d2485dedf16e";
+      hash = "sha256-M06MP/wfhwGKQ8jT4yRtcOOc8zogFPs5S9tXR25qbiw=";
+      finalImageTag = "v1.20.4";
     }
     {
       imageName = "quay.io/cilium/operator-generic";
-      imageDigest = "sha256:64d8798350e8569b8e7622563fed6e44dce2625f311e4651b774816516c744fc";
-      hash = "sha256-l5Cl2H/vpyd8vrS18Ia/kvdEPlWxNkT0ES0tHKJDzms=";
-      finalImageTag = "v1.20.2";
+      imageDigest = "sha256:7a7a3489dc66ad67e420d285c8a8d2e169b0957ad15e120f593d27081bf38d82";
+      hash = "sha256-bgn2f6qNHAtH0g3Cfq1Wvz+ZZAlgx9TwbMTQBDu/YjA=";
+      finalImageTag = "v1.20.4";
     }
   ];
 

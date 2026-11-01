@@ -116,7 +116,7 @@ in {
       type = types.strMatching "1\\.[0-9]+";
       example = "1.35";
       description = ''
-        Kubernetes minor version, i.e. the nixpkgs package k3s_1_35. Patch
+        Kubernetes minor version, i.e. the nixpkgs-unstable package k3s_1_35. Patch
         releases follow flake.lock. Upgrade one minor version at a time and
         let `switch all` do the servers before the agents.
       '';
@@ -222,7 +222,7 @@ in {
           };
           image = mkOption {
             type = types.str;
-            default = "registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e";
+            default = "registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3";
             description = "Registry image, pinned by digest.";
           };
           namespace = mkOption {

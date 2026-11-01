@@ -146,8 +146,9 @@ so `init` can move to any server that has joined.
   on each server watches namespaces and applies or removes it. Cilium enforces
   it, and `policyCIDRMatchMode=nodes` lets `ipBlock` rules select node
   addresses.
-- The k3s package is `k3s_<k3sVersion>` from the pinned nixpkgs: lock updates
-  change the patch release, `cluster.nix` changes the minor release.
+- The k3s package is `k3s_<k3sVersion>` from the pinned `nixpkgs-unstable`
+  input, which gets k3s patch releases before the stable channel: lock
+  updates change the patch release, `cluster.nix` changes the minor release.
 - The kubelet keeps `reserved.server` away from pods (`system-reserved`), so a
   runaway workload is evicted or OOM-killed before etcd and the API server run
   short.

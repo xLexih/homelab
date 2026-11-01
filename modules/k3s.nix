@@ -9,6 +9,7 @@
   cluster,
   node,
   secrets,
+  inputs,
   ...
 }: let
   ip = import ../lib/ip.nix lib;
@@ -37,9 +38,12 @@
   joinVia = lib.filter (n: lib.elem "server" n.roles && n.name != node.name) (
     [cluster.nodes.${cluster.init}] ++ lib.filter (n: n.name != cluster.init) nodes
   );
+  # k3s comes from nixos-unstable: it gets the newest patch releases weeks
+  # before the stable channel does.
+  k3sPkgs = inputs.nixpkgs-unstable.legacyPackages.${pkgs.stdenv.hostPlatform.system};
   package =
-    pkgs."k3s_${builtins.replaceStrings ["."] ["_"] cluster.k3sVersion}"
-    or (throw "k3sVersion ${cluster.k3sVersion} is not in this nixpkgs; available: ${toString (builtins.filter (lib.hasPrefix "k3s_1_") (builtins.attrNames pkgs))}");
+    k3sPkgs."k3s_${builtins.replaceStrings ["."] ["_"] cluster.k3sVersion}"
+    or (throw "k3sVersion ${cluster.k3sVersion} is not in nixpkgs-unstable; available: ${toString (builtins.filter (lib.hasPrefix "k3s_1_") (builtins.attrNames k3sPkgs))}");
 
   podSecurity = (pkgs.formats.json {}).generate "pod-security.json" {
     apiVersion = "apiserver.config.k8s.io/v1";
@@ -173,13 +177,15 @@ in {
     autoDeployCharts.cluster-dns = lib.mkIf isServer {
       name = "coredns";
       repo = "https://coredns.github.io/helm";
-      version = "1.48.1";
-      hash = "sha256-i1JZEndjCJgdZak5SzCBQ4WpHhmEub5HD/xtyOhl8t8=";
+      version = "1.49.0";
+      hash = "sha256-OU+XLZr+sKWmxCVSj2HJi8m85rDm2XmKpqs6lUxnIIQ=";
       targetNamespace = "kube-system";
       extraFieldDefinitions.spec.failurePolicy = "abort";
       values = {
         fullnameOverride = "coredns";
         k8sAppLabelOverride = "kube-dns";
+        # the chart lags behind CoreDNS releases
+        image.tag = "1.15.0";
         replicaCount = dnsReplicas;
         priorityClassName = "system-cluster-critical";
         service = {

@@ -20,8 +20,8 @@ in
     services.k3s.autoDeployCharts.cilium = {
       name = "cilium";
       repo = "https://helm.cilium.io";
-      version = "1.20.2";
-      hash = "sha256-sq/Ye391+HX5KhRVnxT1m3uru0edlo4/1iWiC/MOwg4=";
+      version = "1.20.4";
+      hash = "sha256-UFq/+DhYEd8alJd2/ELp8QaXmJozKsyG1uiTPvy4Ve0=";
       targetNamespace = "kube-system";
       extraFieldDefinitions.spec = {
         bootstrap = true;

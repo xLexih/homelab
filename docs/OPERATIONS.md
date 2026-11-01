@@ -164,10 +164,17 @@ or k3s changes.
 ## Upgrading
 
 Updates are deliberate. Run `nix flake update`, then `nix flake check`, then
-`switch all`. k3s patch releases come with the lock update; the Kubernetes
-minor version only moves when you raise `k3sVersion` in a cluster's
-`cluster.nix`, one minor at a time, and `switch all` upgrades the servers
-before the agents as k3s requires.
+`switch all`. k3s patch releases come with the lock update of
+`nixpkgs-unstable` (the k3s package only); the Kubernetes minor version only
+moves when you raise `k3sVersion` in a cluster's `cluster.nix`, one minor at a
+time, and `switch all` upgrades the servers before the agents as k3s requires.
+Keep the minor inside the range that the Cilium and Longhorn releases support.
+
+After a `switch all` that changes a chart, check `helm list -A`. The
+helm-controller runs a chart again only when its HelmChart object changes, and
+during the rolling switch its job can fetch the chart from a server that still
+has the old one. A chart whose version did not move needs its job run again:
+`kubectl -n kube-system delete job helm-install-<chart>`.
 
 `switch` doesn't load a new kernel. Reboot one node at a time and wait for it
 to be `Ready` before moving on to the next. Cordon the node first

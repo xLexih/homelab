@@ -4,7 +4,7 @@
 # router.
 {
   stateVersion = "26.05";
-  k3sVersion = "1.35";
+  k3sVersion = "1.36";
   init = "s1";
   clusterId = 1;
   loadBalancerIPs = ["10.0.0.200"];

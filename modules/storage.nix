@@ -37,8 +37,8 @@ in
     services.k3s.autoDeployCharts.longhorn = lib.mkIf (lib.elem "server" node.roles) {
       name = "longhorn";
       repo = "https://charts.longhorn.io";
-      version = "1.12.1";
-      hash = "sha256-yM9LNanYcs1ffkT9JtjmrHwquu5C9OLyoLDrvG46YRY=";
+      version = "1.13.0";
+      hash = "sha256-5X8BDSqLzw2luLA//s9Jxbw13cJmNYjOjyK3VnthM+0=";
       targetNamespace = "longhorn-system";
       createNamespace = true;
       # A failed Longhorn upgrade must never be "fixed" by reinstalling it.
@@ -50,6 +50,9 @@ in
           createDefaultDiskLabeledNodes = true;
           # Move pods of a dead node so their volumes can attach elsewhere.
           nodeDownPodDeletionPolicy = "delete-both-statefulset-and-deployment-pod";
+          # After a Longhorn upgrade, move volumes to the new engine one per
+          # node at a time, live; otherwise they stay on the old engine.
+          concurrentAutomaticEngineUpgradePerNodeLimit = 1;
         };
         csi = {
           attacherReplicaCount = sidecars;

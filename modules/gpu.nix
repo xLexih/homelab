@@ -48,8 +48,8 @@ in
       services.k3s.autoDeployCharts.nvidia-device-plugin = {
         name = "nvidia-device-plugin";
         repo = "https://nvidia.github.io/k8s-device-plugin";
-        version = "0.19.3";
-        hash = "sha256-jwEGdQDnElCP5V/gYLb4lYFNx+/By5YyPbLOT3d/bpY=";
+        version = "0.20.1";
+        hash = "sha256-twUULwOsF5Br/PrOkxni97mlcNKvfwTyMlJyPOLAu44=";
         targetNamespace = "kube-system";
         extraFieldDefinitions.spec.failurePolicy = "abort";
         values =
