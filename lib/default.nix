@@ -38,6 +38,8 @@
         (require' (n.platform == "lxc" || !(has "storage" n) || n.dataDisk != null) "VM storage nodes need `dataDisk`")
         (require' (n.platform == "vm" || n.disk == null && n.dataDisk == null) "LXC disks are managed by the host; remove `disk`/`dataDisk`")
         (require' (n.platform == "vm" || !(has "gpu" n)) "the gpu role is only supported on VMs")
+        (require' (lib.all (k: builtins.match "([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?" k != null) (lib.attrNames n.labels)) "`labels` keys must be Kubernetes label keys ([prefix/]name)")
+        (require' (!lib.any (lib.hasPrefix "tag/") (lib.attrNames n.labels)) "put `tag/` labels in `tags`")
       ];
   in
     lib.concatLists (

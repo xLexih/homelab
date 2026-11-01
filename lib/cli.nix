@@ -56,6 +56,7 @@ in
         else "agent")}
       ${table "WGIP" (n: n.wgIP)}
       ${table "STORAGE" (n: lib.optionalString (lib.elem "storage" n.roles) "yes")}
+      ${table "LABELS" (n: lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${k}=${v}") n.nodeLabels))}
 
       die() { echo "error: $*" >&2; exit 1; }
 
@@ -170,6 +171,21 @@ in
         kube "$probe" wait --for=condition=Ready "node/$node" --timeout=5m >/dev/null ||
           die "$node: not Ready after 5 minutes; stopping here"
         echo "$node: Ready"
+        labels_sync "$node" "$probe"
+      }
+
+      # k3s sets --node-label only when a node registers. Set the labels of
+      # cluster.nix on the existing node, and remove the ones that an earlier
+      # switch set but cluster.nix no longer has; the annotation remembers them.
+      labels_sync() {
+        local node=$1 probe=$2 key keys="" old stale=()
+        local -a want
+        read -ra want <<<"''${LABELS[$node]}"
+        for key in "''${want[@]}"; do keys+="''${key%%=*} "; done
+        old=$(kube "$probe" get node "$node" -o 'jsonpath={.metadata.annotations.cluster\.nix/labels}')
+        for key in $old; do [[ " $keys" == *" $key "* ]] || stale+=("$key-"); done
+        kube "$probe" label node "$node" --overwrite "''${want[@]}" "''${stale[@]}" >/dev/null
+        kube "$probe" annotate node "$node" --overwrite "cluster.nix/labels=''${keys% }" >/dev/null
       }
 
       cmd_install() {

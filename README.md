@@ -40,6 +40,8 @@ option a node takes, with its default where it has one:
 ```nix
 worker1 = {
   roles = ["storage" "gpu"];      # any of "server" "storage" "gpu"; [] = plain agent
+  tags = ["home"];                # node label tag/<name>=true; roles are tags too (default: [])
+  labels = {};                    # more node labels, key = value (default)
   wgIP = "10.100.0.4";            # address on the WireGuard mesh (required)
   address = "192.168.2.108/24";   # static LAN address; null = DHCP, then `endpoint` is required
   gateway = "192.168.2.1";        # default: null

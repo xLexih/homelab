@@ -27,6 +27,22 @@ every node and `packages.home` for the command (`nix run .#home`).
 | `gpu`     | NVIDIA driver and container runtime; the device plugin is installed cluster-wide. |
 | (none)    | k3s agent. Every node, servers included, runs workloads. |
 
+## Tags and labels
+
+A node's `tags` and its roles become node labels `tag/<name>=true`, so a
+workload can promise where it runs before a node exists:
+
+```yaml
+nodeSelector:
+  tag/home: "true"   # or tag/gpu, tag/storage, tag/server
+```
+
+`labels` sets any other label as key = value; `tag/` keys belong to `tags`.
+k3s applies node labels only when a node registers, so `switch` also sets
+them on the running node, and removes the ones that an earlier `switch` set
+and `cluster.nix` no longer has (the node annotation `cluster.nix/labels`
+lists them). Labels set by hand with `kubectl label` stay.
+
 ## Example
 
 `clusters/home/cluster.nix`: three servers that also hold Longhorn replicas,

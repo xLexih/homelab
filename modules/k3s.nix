@@ -129,10 +129,8 @@ in {
     tokenFile = config.age.secrets.k3s-token.path;
     nodeIP = node.wgIP;
     nodeExternalIP = node.ip;
-    nodeLabel =
-      ["topology.kubernetes.io/zone=${node.location}"]
-      ++ lib.optional (lib.elem "storage" node.roles) "node.longhorn.io/create-default-disk=true"
-      ++ lib.optional (lib.elem "gpu" node.roles) "nvidia.com/gpu.present=true";
+    # applied at registration only; `switch` keeps the labels of existing nodes in step
+    nodeLabel = lib.mapAttrsToList (k: v: "${k}=${v}") node.nodeLabels;
     gracefulNodeShutdown.enable = true;
     environmentFile = lib.mkIf (isServer && s3 != null) config.age.secrets.etcd-s3.path;
     disable = lib.optionals isServer (["traefik" "coredns" "servicelb"] ++ lib.optional hasStorage "local-storage");

@@ -13,6 +13,7 @@
   nodes = {
     master1 = {
       roles = ["server" "storage" "gpu"];
+      tags = ["home"];
       wgIP = "10.100.0.1";
       address = "192.168.2.105/24";
       gateway = "192.168.2.1";
@@ -21,6 +22,7 @@
     };
     master2 = {
       roles = ["server" "storage"];
+      tags = ["home"];
       wgIP = "10.100.0.2";
       address = "192.168.2.106/24";
       gateway = "192.168.2.1";
@@ -29,6 +31,7 @@
     };
     master3 = {
       roles = ["server" "storage"];
+      tags = ["home"];
       wgIP = "10.100.0.3";
       address = "192.168.2.107/24";
       gateway = "192.168.2.1";

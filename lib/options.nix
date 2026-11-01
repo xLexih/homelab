@@ -7,6 +7,9 @@
   inherit (lib) mkOption types;
   ipv4 = types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}";
   cidr = types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}";
+  # Kubernetes label name and value syntax (63 characters at most)
+  labelName = types.strMatching "[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?";
+  labelValue = types.strMatching "(([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9])?";
   servers = lib.attrNames (lib.filterAttrs (_: n: lib.elem "server" n.roles) config.nodes);
 
   node = {
@@ -80,6 +83,34 @@
         type = types.nullOr types.str;
         default = null;
         description = "VM disk mounted on /data for Longhorn; required for storage nodes. Erased by `install`.";
+      };
+      tags = mkOption {
+        type = types.listOf labelName;
+        default = [];
+        example = ["home"];
+        description = ''
+          Free names that become the node label `tag/<name>=true`, for
+          workloads to select with `nodeSelector: {tag/<name>: "true"}`.
+          Every role is a tag too (`tag/server`, `tag/storage`, `tag/gpu`).
+        '';
+      };
+      labels = mkOption {
+        type = types.attrsOf labelValue;
+        default = {};
+        example = {"example.com/rack" = "a1";};
+        description = "More node labels, as key = value. Keys under `tag/` belong to `tags`.";
+      };
+      nodeLabels = mkOption {
+        type = types.attrsOf types.str;
+        default =
+          config.labels
+          // lib.genAttrs (map (t: "tag/${t}") (lib.unique (config.roles ++ config.tags))) (_: "true")
+          // {"topology.kubernetes.io/zone" = config.location;}
+          // lib.optionalAttrs (lib.elem "storage" config.roles) {"node.longhorn.io/create-default-disk" = "true";}
+          // lib.optionalAttrs (lib.elem "gpu" config.roles) {"nvidia.com/gpu.present" = "true";};
+        readOnly = true;
+        internal = true;
+        description = "Every label that the cluster sets on this node; `switch` applies them, also to nodes that exist.";
       };
       ip = mkOption {
         type = types.nullOr types.str;
