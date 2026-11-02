@@ -33,62 +33,6 @@
     clusters =
       lib.mapAttrs (name: _: clusterLib.mkCluster name (./clusters + "/${name}"))
       (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./clusters));
-
-    # Expected validation error (substring) -> broken variant of the home cluster.
-    invalid = let
-      home = import ./clusters/home/cluster.nix;
-      set = lib.recursiveUpdate home;
-    in {
-      "odd number of servers" = home // {nodes = removeAttrs home.nodes ["master3"];};
-      "`init` must name" = removeAttrs home ["init"];
-      "inside network.wgCIDR" = set {nodes.master2.wgIP = "10.200.0.2";};
-      "must be unique" = set {nodes.master2.wgIP = "10.100.0.1";};
-      "must not overlap" = set {network.serviceCIDR = "10.42.128.0/17";};
-      "need `dataDisk`" = set {nodes.master2.dataDisk = null;};
-      "inside the `address` subnet" = home // {loadBalancerIPs = ["10.9.9.9"];};
-      "entries must not overlap" = home // {loadBalancerIPs = ["192.168.2.150-192.168.2.160" "192.168.2.160/32"];};
-      "include node or gateway" = home // {loadBalancerIPs = ["192.168.2.100-192.168.2.110"];};
-      "written low-high" = home // {loadBalancerIPs = ["192.168.2.160-192.168.2.150"];};
-      "no WireGuard path" = set {nodes.master3.location = "elsewhere";};
-      "share one `location`" = set {
-        nodes.master3 = {
-          location = "elsewhere";
-          endpoint = "master3.example.org";
-        };
-      };
-      "set some" =
-        home
-        // {
-          loadBalancerIPs = [];
-          bgp = {
-            asn = 65100;
-            peers = [
-              {
-                address = "192.168.2.1";
-                asn = 65000;
-              }
-            ];
-          };
-        };
-      "every bgp peer" =
-        home
-        // {
-          bgp = {
-            asn = 65100;
-            peers = [
-              {
-                address = "10.9.9.9";
-                asn = 65000;
-              }
-            ];
-          };
-        };
-    };
-    rejected = expected: definition: let
-      errors = clusterLib.validate (clusterLib.evalCluster "test" definition);
-    in
-      lib.any (lib.hasInfix expected) errors
-      || throw "validation should report '${expected}', got: ${builtins.toJSON errors}";
   in {
     nixosConfigurations = lib.concatMapAttrs (_: c: c.nixosConfigurations) clusters;
     packages.${system} = lib.mapAttrs (_: c: c.cli) clusters;
@@ -109,8 +53,7 @@
           statix check ${self}
           touch $out
         '';
-        validation = assert lib.all (x: x) (lib.mapAttrsToList rejected invalid);
-          pkgs.runCommand "validation" {} "touch $out";
+        validation = import ./tests/validation.nix {inherit lib pkgs clusterLib;};
         # Every chart the servers fetch and every manifest they write. Small,
         # and the only way to catch a wrong chart hash before a deploy.
         charts = let
