@@ -27,8 +27,8 @@ Run from the repository root with your admin key in `ssh-agent`
 
 ```bash
 nix run .#home -- status                 # nodes, and whether every chart installed
-nix run .#home -- switch master2         # rebuild one node (or several, or `all`)
-nix run .#home -- rollback master2       # previous generation
+nix run .#home -- switch master1         # rebuild one node (or several, or `all`)
+nix run .#home -- rollback master1       # previous generation
 nix run .#home -- ssh master1            # shell, or append a command
 nix run .#home -- kubeconfig             # ~/.kube/home.yaml + the SSH tunnel to run
 nix run .#home -- image ./app.tar.gz     # load an image on every node

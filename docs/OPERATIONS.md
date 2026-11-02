@@ -30,30 +30,35 @@ only sees tracked files.
 
 The keys and secrets already exist in `clusters/home/secrets`, so a fresh
 install only needs the admin key in `ssh-agent` and a NixOS installer booted
-on each machine:
+on the machine:
 
 ```bash
 nix flake check
 
-# master1 (init) first, then the rest; a VM's disks are erased after you confirm
+# the VM's disks are erased after you confirm
 nix run .#home -- install master1 root@<installer-ip>
-nix run .#home -- install master2 root@<installer-ip>
-nix run .#home -- install master3 root@<installer-ip>
 ```
+
+In a cluster of several nodes, install `init` first, then the rest.
 
 To bring back the old state, copy an etcd snapshot onto master1 and restore
 it as in [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md#etcd-lost-quorum).
 
-To reinstall nodes that are still running, kexec them into the installer with
+To reinstall a node that is still running, kexec it into the installer with
 the admin key first. `install` can't do this through `admin@`, because the key
-nixos-anywhere copies to `~/.ssh` is ignored. Stop k3s on master2 and master3
-before reinstalling master1, so it starts a new cluster instead of rejoining
-the old one:
+nixos-anywhere copies to `~/.ssh` is ignored. In a cluster of several nodes,
+stop k3s on the other servers before reinstalling `init`, so it starts a new
+cluster instead of rejoining the old one:
 
 ```bash
 nix run nixpkgs#nixos-anywhere -- -i ~/.ssh/k3s-admin --phases kexec --flake .#home-master1 admin@192.168.2.105
 nix run .#home -- install master1 root@192.168.2.105
 ```
+
+The installer runs from RAM, so the VM's disks can change between the two
+steps. Proxmox refuses to unplug the boot disk of a running VM; grow the disks
+instead (`qm resize 100 scsi0 2048G`) and rescan them in the installer
+(`echo 1 > /sys/block/sda/device/rescan`).
 
 `install` boots a VM from any NixOS installer into its final system with
 `nixos-anywhere`, putting the node's SSH host key in place first so it can

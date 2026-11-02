@@ -90,7 +90,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/k3s-admin
 S=clusters/home/secrets
 cp ~/.ssh/k3s-admin.pub $S/admin.pub
 
-for n in master1 master2 master3; do
+for n in master1; do                  # every node of the cluster
   age -R $S/admin.pub -o $S/hosts/$n/ssh-key.age < ~/recovery/host-$n
   AGE_IDENTITY=~/recovery/host-$n EDITOR=true nix run .#home -- secrets edit hosts/$n/wireguard.age
 done
@@ -138,21 +138,21 @@ in that case):
 
 ```bash
 S=clusters/home/secrets
-cp $S/hosts/master2/ssh-key.pub /tmp/old-master2.pub
-rm $S/hosts/master2/ssh-key.age $S/hosts/master2/ssh-key.pub
-nix run .#home -- secrets sync        # new key; master2's secrets re-encrypted for it
+cp $S/hosts/master1/ssh-key.pub /tmp/old-master1.pub
+rm $S/hosts/master1/ssh-key.age $S/hosts/master1/ssh-key.pub
+nix run .#home -- secrets sync        # new key; master1's secrets re-encrypted for it
 
 # put the new key in place, trusting the old one for these last connections;
 # the public half first, since sshd presents the new key after its restart
-echo "192.168.2.106 $(cut -d' ' -f1-2 /tmp/old-master2.pub)" > /tmp/old-known
-ssh -o UserKnownHostsFile=/tmp/old-known admin@192.168.2.106 \
-  "echo '$(cat $S/hosts/master2/ssh-key.pub)' | sudo tee /etc/ssh/ssh_host_ed25519_key.pub >/dev/null"
-age -d -i ~/.ssh/k3s-admin $S/hosts/master2/ssh-key.age |
-  ssh -o UserKnownHostsFile=/tmp/old-known admin@192.168.2.106 \
+echo "192.168.2.105 $(cut -d' ' -f1-2 /tmp/old-master1.pub)" > /tmp/old-known
+ssh -o UserKnownHostsFile=/tmp/old-known admin@192.168.2.105 \
+  "echo '$(cat $S/hosts/master1/ssh-key.pub)' | sudo tee /etc/ssh/ssh_host_ed25519_key.pub >/dev/null"
+age -d -i ~/.ssh/k3s-admin $S/hosts/master1/ssh-key.age |
+  ssh -o UserKnownHostsFile=/tmp/old-known admin@192.168.2.105 \
     'sudo install -m 600 /dev/stdin /etc/ssh/ssh_host_ed25519_key && sudo systemctl restart sshd'
 
-nix run .#home -- switch master2      # agenix decrypts with the new key
-rm /tmp/old-master2.pub /tmp/old-known
+nix run .#home -- switch master1      # agenix decrypts with the new key
+rm /tmp/old-master1.pub /tmp/old-known
 ```
 
 The sync was rehearsed against a copy of `home`; the key replacement on a
@@ -162,7 +162,7 @@ live node wasn't. If the live part goes wrong, reinstall the node instead:
 ## Rotating a WireGuard key
 
 ```bash
-rm clusters/home/secrets/hosts/master2/wireguard.{age,pub}
+rm clusters/home/secrets/hosts/master1/wireguard.{age,pub}
 nix run .#home -- secrets sync
 nix run .#home -- switch all
 ```

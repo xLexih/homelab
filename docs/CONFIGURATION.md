@@ -45,13 +45,12 @@ lists them). Labels set by hand with `kubectl label` stay.
 
 ## Example
 
-`clusters/home/cluster.nix`: three servers that also hold Longhorn replicas,
-one of them with a GPU, and a range of LAN addresses for LoadBalancer
-services:
+`clusters/home/cluster.nix`: one server that also holds the Longhorn replicas
+and the GPU, and a range of LAN addresses for LoadBalancer services:
 
 ```nix
 {
-  k3sVersion = "1.35";
+  k3sVersion = "1.36";
   stateVersion = "26.05";
   init = "master1";               # the server that created the cluster
   clusterId = 1;                  # Cilium identity, for ClusterMesh later
@@ -65,18 +64,9 @@ services:
       wgIP = "10.100.0.1";
       address = "192.168.2.105/24";
       gateway = "192.168.2.1";
-      disk = "/dev/sdb";
-      dataDisk = "/dev/sda";
+      disk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1";
+      dataDisk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0";
     };
-    master2 = {
-      roles = ["server" "storage"];
-      wgIP = "10.100.0.2";
-      address = "192.168.2.106/24";
-      gateway = "192.168.2.1";
-      disk = "/dev/sdb";
-      dataDisk = "/dev/sda";
-    };
-    master3 = { /* like master2, with .3 and .107 */ };
   };
 }
 ```
